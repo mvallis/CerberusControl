@@ -1,0 +1,145 @@
+[dds_set_com_port]
+Class="Function"
+Prototype="void dds_set_com_port(const char *port);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:43:6"
+
+[dds_set_clock]
+Class="Function"
+Prototype="void dds_set_clock(double clock_hz);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:49:6"
+
+[dds_get_clock]
+Class="Function"
+Prototype="double dds_get_clock();"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:55:8"
+
+[dds_write_bytes]
+Class="Function"
+Prototype="int dds_write_bytes(unsigned char address, int count, unsigned char *data);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:93:5"
+
+[dds_write_uint8]
+Class="Function"
+Prototype="int dds_write_uint8(unsigned char address, unsigned char param);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:120:5"
+
+[dds_write_uint16]
+Class="Function"
+Prototype="int dds_write_uint16(unsigned char address, unsigned short param);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:124:5"
+
+[dds_write_uint16_pair]
+Class="Function"
+Prototype="int dds_write_uint16_pair(unsigned char address, unsigned short upper, unsigned short lower);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:131:5"
+
+[dds_write_uint32]
+Class="Function"
+Prototype="int dds_write_uint32(unsigned char address, unsigned int param);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:140:5"
+
+[dds_write_uint32_pair]
+Class="Function"
+Prototype="int dds_write_uint32_pair(unsigned char address, unsigned int upper, unsigned int lower);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:150:5"
+
+[dds_write_uint64]
+Class="Function"
+Prototype="int dds_write_uint64(unsigned char address, unsigned long long param);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:164:5"
+
+[dds_read_bytes]
+Class="Function"
+Prototype="int dds_read_bytes(unsigned char address, int count, unsigned char *data);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:177:5"
+
+[dds_read_uint8]
+Class="Function"
+Prototype="int dds_read_uint8(unsigned char address, unsigned char *param);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:232:5"
+
+[dds_read_uint16]
+Class="Function"
+Prototype="int dds_read_uint16(unsigned char address, unsigned short *param);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:236:5"
+
+[dds_read_uint16_pair]
+Class="Function"
+Prototype="int dds_read_uint16_pair(unsigned char address, unsigned short *upper, unsigned short *lower);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:245:5"
+
+[dds_read_uint32]
+Class="Function"
+Prototype="int dds_read_uint32(unsigned char address, unsigned int *param);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:255:5"
+
+[dds_read_uint32_pair]
+Class="Function"
+Prototype="int dds_read_uint32_pair(unsigned char address, unsigned int *upper, unsigned int *lower);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:264:5"
+
+[dds_read_uint64]
+Class="Function"
+Prototype="int dds_read_uint64(unsigned char address, unsigned long long *param);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:274:5"
+
+[dds_reset]
+Class="Function"
+Prototype="int dds_reset();"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:289:5"
+
+[dds_update]
+Class="Function"
+Prototype="int dds_update();"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:299:5"
+
+[dds_powerup]
+Class="Function"
+Prototype="int dds_powerup();"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:309:5"
+
+[dds_powerdown]
+Class="Function"
+Prototype="int dds_powerdown();"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:319:5"
+
+[dds_hello]
+Class="Function"
+Prototype="int dds_hello();"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:329:5"
+
+[dds_drctrl]
+Class="Function"
+Prototype="int dds_drctrl(int invert);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:339:5"
+
+[dds_drover]
+Class="Function"
+Prototype="int dds_drover(int invert);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:351:5"
+
+[ad9914_calibrate_dac]
+Class="Function"
+Prototype="int ad9914_calibrate_dac();"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:366:5"
+
+[ad9914_single_tone]
+Class="Function"
+Prototype="int ad9914_single_tone(double frequency, double *actual_frequency);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:375:5"
+
+[ad9914_ramp_generator]
+Class="Function"
+Prototype="int ad9914_ramp_generator(double start_freq, double stop_freq, double period, unsigned int flags, double *actual_start, double *actual_stop, double *actual_period);"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:392:5"
+
+[init_dds]
+Class="Function"
+Prototype="int init_dds();"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:440:5"
+
+[deinit_dds]
+Class="Function"
+Prototype="int deinit_dds();"
+SourceLocation="c:\Users\User\Documents\Cerberus\Software\Control\Full_Threaded\dds.c:485:5"
+
