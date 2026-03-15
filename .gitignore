@@ -1,0 +1,21 @@
+# CVI Junk Files
+*.cws
+*.cdb
+*.tmp
+*.bak
+cvibuild.*/
+# Compiled Binaries
+*.obj
+*.res
+*.exe
+*.dll
+*.lib
+
+# === Additional MATLAB Specifics ===
+*.asv          # MATLAB Editor autosave files
+*.slxc         # Simulink cache files
+slprj/         # Simulink project folders
+
+# === AI/Agentic Workflow Specifics ===
+.claude/       # Local Claude Code session data
+mcp_config.json # Local MCP server configuration
