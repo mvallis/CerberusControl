@@ -27,55 +27,7 @@
 #include "Wd-dask.h"        /* WD-DASK header  */
 #include "DeviceControl_FullThreaded.h"
 
-/* Fallback: remove this once the Chirp Mode ring is added to the UIR
-   and the auto-generated .h contains TABPANEL_DDS_RING_CHIRP_MODE */
-//#ifndef TABPANEL_DDS_RING_CHIRP_MODE
-//#define TABPANEL_DDS_RING_CHIRP_MODE  16
-//#endif
-//#ifndef TABPANEL_DDS_NUM_CW_FREQ
-//#define TABPANEL_DDS_NUM_CW_FREQ      17
-//#endif
-///* Timing calculator — hardware chain inputs */
-//#ifndef TABPANEL_DDS_NUM_HMC_DIV
-//#define TABPANEL_DDS_NUM_HMC_DIV      18
-//#endif
-//#ifndef TABPANEL_DDS_NUM_PROG_DIV
-//#define TABPANEL_DDS_NUM_PROG_DIV     19
-//#endif
-//#ifndef TABPANEL_DDS_NUM_SAMPS_PER_CHI
-//#define TABPANEL_DDS_NUM_SAMPS_PER_CHI  20
-//#endif
-///* Timing calculator — derived indicators */
-//#ifndef TABPANEL_DDS_NUM_SYNC_CLK
-//#define TABPANEL_DDS_NUM_SYNC_CLK     21
-//#endif
-//#ifndef TABPANEL_DDS_NUM_ADC_CLK
-//#define TABPANEL_DDS_NUM_ADC_CLK      22
-//#endif
-//#ifndef TABPANEL_DDS_NUM_TRIG_FREQ
-//#define TABPANEL_DDS_NUM_TRIG_FREQ    23
-//#endif
-//#ifndef TABPANEL_DDS_NUM_DRCTRL_PERIOD
-//#define TABPANEL_DDS_NUM_DRCTRL_PERIOD 24
-//#endif
-//#ifndef TABPANEL_DDS_NUM_CHIRP_STEPS
-//#define TABPANEL_DDS_NUM_CHIRP_STEPS  25
-//#endif
-//#ifndef TABPANEL_DDS_NUM_CALC_PERIOD
-//#define TABPANEL_DDS_NUM_CALC_PERIOD  26
-//#endif
-//#ifndef TABPANEL_DDS_NUM_DEAD_TIME
-//#define TABPANEL_DDS_NUM_DEAD_TIME    27
-//#endif
-//#ifndef TABPANEL_DDS_NUM_DEAD_SAMPLES
-//#define TABPANEL_DDS_NUM_DEAD_SAMPLES 28
-//#endif
-//#ifndef TABPANEL_DDS_NUM_MIN_PROG_DIV
-//#define TABPANEL_DDS_NUM_MIN_PROG_DIV 29
-//#endif
-//#ifndef TABPANEL_DDS_MSG_TIMING_WARN
-//#define TABPANEL_DDS_MSG_TIMING_WARN  30
-//#endif
+
 
 /*---------------------------------------------------------------------------
  * Constants
@@ -139,7 +91,6 @@ static int    adcRegistered = 0;
 static int    adcRunning    = 0;
 
 /* ---- Continuous Acquisition State ---- */
-static U32    adcTotalSamples = 0;   
 static U16   *dmaBuffer1      = NULL;  /* Replaces adcBuffer */
 static U16   *dmaBuffer2      = NULL;  /* Dual buffer architecture */
 static U16    adcBufId        = 0;
@@ -180,8 +131,7 @@ static double       currentAdcSampleRateHz = 40000000.0; /* Updated by timing ca
 #define FREQ_MULTIPLIER   3       /* Tx chain frequency tripler */
 #define SPEED_OF_LIGHT    3.0e8   /* m/s */
 static double       rangeAxis[FFT_MAX_SIZE]; /* Range in metres per FFT bin */
-/* Diagnosis */
-//static int cbCounter = 0;
+
 
 /*---------------------------------------------------------------------------
  * Forward Declarations
@@ -220,8 +170,9 @@ static int  NextPow2         (int v);
 
 /* Forward declarations for new functions */
 int  CVICALLBACK DiskWriterThreadFunction (void *functionData);
+int  CVICALLBACK HardwarePollThreadFunction (void *functionData);
 void CVICALLBACK ADC_PlotFFT_Deferred (void *callbackData);
-
+void CVICALLBACK Overrun_Deferred (void *callbackData);
 /*===========================================================================
  *  MAIN
  *===========================================================================*/
@@ -554,10 +505,12 @@ void CVICALLBACK Overrun_Deferred (void *callbackData) {
 /*===========================================================================
  * THREAD 2: Hardware Polling (Producer)
  *===========================================================================*/
+
 int CVICALLBACK HardwarePollThreadFunction (void *functionData)
 {
     BOOLEAN halfReady, fStop;
     int activeBuf = 0;
+    int queueStatus;
 
     while (isAcquiring) {
         WD_AI_AsyncDblBufferHalfReady(adcCard, &halfReady, &fStop);
@@ -565,20 +518,24 @@ int CVICALLBACK HardwarePollThreadFunction (void *functionData)
         if (halfReady) {
             U16 *src = (activeBuf == 0) ? dmaBuffer1 : dmaBuffer2;
             
-            CmtWriteTSQData(dmaQueue, src, 1, 10, NULL);
-            WD_AI_AsyncDblBufferHandled(adcCard);
+            /* 10ms timeout. Check if Disk Writer is keeping up */
+            queueStatus = CmtWriteTSQData(dmaQueue, src, 1, 10, NULL);
+            if (queueStatus < 0 && isAcquiring) {
+                PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, NULL);
+                break;
+            }
+            
+            /* DO NOT CALL WD_AI_AsyncDblBufferHandled(adcCard); here in Polled Mode! */
             
             activeBuf = 1 - activeBuf;
             heartbeatCounter++;
         }
         
-        /* Trap hardware halt and alert UI safely */
         if (fStop && isAcquiring) {
             PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, NULL);
             break;
         }
-        
-        Sleep(1); 
+        Sleep(1);
     }
     return 0;
 }
@@ -763,37 +720,6 @@ static void ADC_RecordWriteHeader (void)
     fflush (recordFile);
 }
 
-///* Append the current acquisition buffer to the open recording file */
-//static void ADC_RecordAppendData (void)
-//{
-//    U32 sampPerTrig, numTrigs, samplesToWrite;
-
-//    if (recordFile == NULL || adcBuffer == NULL) return;
-
-//    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &sampPerTrig);
-//    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_TRIGGERS,       &numTrigs);
-
-//    samplesToWrite = sampPerTrig * numTrigs * ADC_NUM_CHANNELS;
-//    if (samplesToWrite > adcTotalSamples)
-//        samplesToWrite = adcTotalSamples;
-
-//    fwrite (adcBuffer, sizeof(U16), samplesToWrite, recordFile);
-//    fflush (recordFile);
-
-//    recordedTrigs += numTrigs;
-//	
-//	samplesToWrite = sampPerTrig * numTrigs * ADC_NUM_CHANNELS;
-//    
-//    /* Write interleaved 16-bit payload: CH0, CH1, CH0, CH1... */
-//    size_t written = fwrite(adcBuffer, sizeof(U16), samplesToWrite, recordFile);
-//    
-//    if (written != samplesToWrite) {
-//        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ERROR: Disk write truncated!");
-//    } else {
-//        fflush(recordFile); /* Force flush from Windows cache to physical NVMe/SSD */
-//        recordedTrigs += numTrigs;
-//    }
-//}
 
 /* Rewrite header with final trigger count and close file */
 static void ADC_RecordFinish (void)
@@ -1447,14 +1373,16 @@ int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
     return 0;
 }
 
+// Inside DeviceControl_FullThreaded.c
+
 int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
-    int    rangeIdx, impedIdx, pDiv;
-    U16    adRange, impedance;
-    I16    err;
-    char   diagMsg[512];
-
     if (ev != EVENT_COMMIT || !adcRegistered) return 0;
+
+    int rangeIdx, impedIdx, pDiv;
+    U16 adRange, impedance;
+    I16 err;
+    char diagMsg[512];
 
     GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_RANGE,     &rangeIdx);
     GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_IMPEDANCE, &impedIdx);
@@ -1464,46 +1392,51 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
     currentAdcVoltageLimit = (rangeIdx == 0) ? 1.0 : 5.0;
     impedance = (impedIdx == 0) ? IMPEDANCE_50Ohm : IMPEDANCE_HI;
 
-    /* AutoResetBuf MUST be 1 (TRUE) for continuous dual buffer DMA */
+    // 1. Configure AI Hardware (Matching Example sequence)
+    // WD_ExtTimeBase = 0, adDutyRestore = 1, ConvSrc = TimePacer, DoubleEdged = 0, AutoReset = 1
     err = WD_AI_Config (adcCard, WD_ExtTimeBase, 1, WD_AI_ADCONVSRC_TimePacer, 0, 1);
-    if (err != NoError) return 0;
+    if (err != NoError) {
+        sprintf(diagMsg, "AI_Config Error: %d", err);
+        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
+        return 0;
+    }
 
-    WD_AI_CH_Config (adcCard, 0, adRange);
-    WD_AI_CH_Config (adcCard, 1, adRange);
-    WD_AI_CH_ChangeParam (adcCard, 0, AI_IMPEDANCE, impedance);
-    WD_AI_CH_ChangeParam (adcCard, 1, AI_IMPEDANCE, impedance);
+    // 2. Channel & Impedance Configuration
+    for (int i = 0; i < ADC_NUM_CHANNELS; i++) {
+        WD_AI_CH_Config (adcCard, i, adRange);
+        WD_AI_CH_ChangeParam (adcCard, i, AI_IMPEDANCE, impedance);
+    }
 
+    // 3. Buffer Calculation (Refactored for stability)
     if (pDiv <= 0) pDiv = 1152;
-    samplesPerChirp = 0;
-    GetCtrlVal(adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &samplesPerChirp);
-    if (samplesPerChirp == 0) samplesPerChirp = 1024;
-
-    /* Define memory depth */
-    halfBufferSize  = 4096 * pDiv * ADC_NUM_CHANNELS;
-    adcTotalSamples = halfBufferSize * 2;
-
+    // Buffer size should be a multiple of 16-bytes for DMA efficiency
+    halfBufferSize  = 4096 * pDiv * ADC_NUM_CHANNELS; 
+    
     if (dmaBuffer1) { WD_Buffer_Free(adcCard, dmaBuffer1); dmaBuffer1 = NULL; }
     if (dmaBuffer2) { WD_Buffer_Free(adcCard, dmaBuffer2); dmaBuffer2 = NULL; }
     WD_AI_ContBufferReset(adcCard);
 
-    /* Allocate dual aligned DMA pages */
     dmaBuffer1 = (U16 *)WD_Buffer_Alloc(adcCard, halfBufferSize * sizeof(U16));
     dmaBuffer2 = (U16 *)WD_Buffer_Alloc(adcCard, halfBufferSize * sizeof(U16));
-    
+
     if (!dmaBuffer1 || !dmaBuffer2) {
-        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Buffer Allocation Failed");
+        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Memory Allocation Failed");
         return 0;
     }
 
-    sprintf(diagMsg, "Config OK | halfBuf=%lu | totalSamp=%lu",
-            (unsigned long)halfBufferSize, (unsigned long)adcTotalSamples);
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
+    // Register both halves into the driver's circular ring
+    err = WD_AI_ContBufferSetup(adcCard, dmaBuffer1, halfBufferSize, &adcBufId);
+    err = WD_AI_ContBufferSetup(adcCard, dmaBuffer2, halfBufferSize, &adcBufId);
+    
+    // Enable Double Buffer Mode
+    WD_AI_AsyncDblBufferMode(adcCard, 1);
 
+    sprintf(diagMsg, "Config OK | Half-Buffer: %lu Samples", (unsigned long)halfBufferSize);
+    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
+    
+    // UI Updates
     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SINGLE,    ATTR_DIMMED, 0);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,    ATTR_DIMMED, 0);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SAVE,      ATTR_DIMMED, 0);
-
     return 0;
 }
 
