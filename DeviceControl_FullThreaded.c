@@ -474,9 +474,9 @@ int CVICALLBACK DiskWriterThreadFunction (void *functionData)
                     U32 lastChirpStart = offsetToFirstChirp + (n_max * currentProgDiv);
                     U32 bufferOffset = lastChirpStart * ADC_NUM_CHANNELS;
                     
+                    plotBusy = 1;
                     memcpy(plotBuffer, localBuf + bufferOffset, samplesPerChirp * ADC_NUM_CHANNELS * sizeof(U16));
                     plotSamples = samplesPerChirp;
-                    plotBusy = 1;
                     PostDeferredCall((DeferredCallbackPtr)ADC_PlotFFT_Deferred, NULL);
                 }
             }
@@ -498,7 +498,13 @@ int CVICALLBACK DiskWriterThreadFunction (void *functionData)
  * DEFERRED CALLBACK: Overrun Trap
  *===========================================================================*/
 void CVICALLBACK Overrun_Deferred (void *callbackData) {
-    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "HALTED: DMA Buffer Overrun");
+    int overrunType = (int)(intptr_t)callbackData;
+    
+    if (overrunType == 1) {
+        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "HALTED: DMA Queue Full (Disk IO too slow)");
+    } else {
+        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "HALTED: Hardware DMA Overrun");
+    }
     AdcStopCB(0, 0, EVENT_COMMIT, NULL, 0, 0);
 }
 
@@ -514,29 +520,29 @@ int CVICALLBACK HardwarePollThreadFunction (void *functionData)
 
     while (isAcquiring) {
         WD_AI_AsyncDblBufferHalfReady(adcCard, &halfReady, &fStop);
-        
         if (halfReady) {
             U16 *src = (activeBuf == 0) ? dmaBuffer1 : dmaBuffer2;
-            
-            /* 10ms timeout. Check if Disk Writer is keeping up */
-            queueStatus = CmtWriteTSQData(dmaQueue, src, 1, 10, NULL);
+            queueStatus = CmtWriteTSQData(dmaQueue, src, 1, 0, NULL);
             if (queueStatus < 0 && isAcquiring) {
-                PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, NULL);
+                PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, (void*)1);
                 break;
             }
-            
-            /* DO NOT CALL WD_AI_AsyncDblBufferHandled(adcCard); here in Polled Mode! */
-            
             activeBuf = 1 - activeBuf;
             heartbeatCounter++;
+            
+            // CRITICAL FIX: Tell the driver the buffer is free to be overwritten
+            WD_AI_AsyncDblBufferHandled(adcCard); 
         }
         
         if (fStop && isAcquiring) {
-            PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, NULL);
+            PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, (void*)0);
             break;
         }
+        /* Yielding cpu slice. 1ms sleep is fine once buffer is ~50ms wide */
         Sleep(1);
     }
+	
+	
     return 0;
 }
 
@@ -1349,27 +1355,42 @@ int CVICALLBACK AdcStrictDiagnosticCB (int p, int c, int ev, void *cbd, int e1, 
 int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
     int cardNum;
+    U32 driverDmaSizeKB = 0;
+    char msg[128];
+
     if (ev != EVENT_COMMIT) return 0;
-
     GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_CARD_NUM, &cardNum);
-
+    
     adcCard = WD_Register_Card (PCI_9846H, (U16)cardNum);
     if (adcCard < 0) {
-        char msg[128];
         sprintf (msg, "Register FAILED (err %d)", adcCard);
         SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
         return 0;
     }
 
-    /* Mandatory hardware calibration */
-    WD_AD_Auto_Calibration_ALL(adcCard);
+    // --- NEW DMA DIAGNOSTIC CHECK ---
+    WD_AI_InitialMemoryAllocated(adcCard, &driverDmaSizeKB);
+    
+    // 128,000 KB is ~128 MB. 
+    // If it's less than what we need (e.g. 16MB = 16384 KB), or absurdly high (corrupted registry)
+    if (driverDmaSizeKB < 16384 || driverDmaSizeKB > 1048576) {
+        sprintf(msg, "FATAL: Invalid Driver DMA Size (%lu KB). Check ADLINK Utility.", driverDmaSizeKB);
+        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        WD_Release_Card(adcCard);
+        adcCard = -1;
+        return 0;
+    }
+    // --------------------------------
 
+    WD_AD_Auto_Calibration_ALL(adcCard);
     adcRegistered = 1;
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Card registered & calibrated OK");
+    
+    sprintf(msg, "Card OK. DMA Pool: %lu KB", driverDmaSizeKB);
+    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+    
     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_REGISTER,  ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
-
     return 0;
 }
 
@@ -1377,12 +1398,13 @@ int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
 
 int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
-    if (ev != EVENT_COMMIT || !adcRegistered) return 0;
+    int    rangeIdx, impedIdx, pDiv, i;
+    U16    adRange, impedance;
+    I16    err;
+    char   diagMsg[512];
+    U32    targetScans, scansPerHalf, adcTotalSamples;
 
-    int rangeIdx, impedIdx, pDiv;
-    U16 adRange, impedance;
-    I16 err;
-    char diagMsg[512];
+    if (ev != EVENT_COMMIT || !adcRegistered) return 0;
 
     GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_RANGE,     &rangeIdx);
     GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_IMPEDANCE, &impedIdx);
@@ -1392,8 +1414,6 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
     currentAdcVoltageLimit = (rangeIdx == 0) ? 1.0 : 5.0;
     impedance = (impedIdx == 0) ? IMPEDANCE_50Ohm : IMPEDANCE_HI;
 
-    // 1. Configure AI Hardware (Matching Example sequence)
-    // WD_ExtTimeBase = 0, adDutyRestore = 1, ConvSrc = TimePacer, DoubleEdged = 0, AutoReset = 1
     err = WD_AI_Config (adcCard, WD_ExtTimeBase, 1, WD_AI_ADCONVSRC_TimePacer, 0, 1);
     if (err != NoError) {
         sprintf(diagMsg, "AI_Config Error: %d", err);
@@ -1401,17 +1421,25 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
         return 0;
     }
 
-    // 2. Channel & Impedance Configuration
-    for (int i = 0; i < ADC_NUM_CHANNELS; i++) {
+    for (i = 0; i < ADC_NUM_CHANNELS; i++) {
         WD_AI_CH_Config (adcCard, i, adRange);
         WD_AI_CH_ChangeParam (adcCard, i, AI_IMPEDANCE, impedance);
     }
 
-    // 3. Buffer Calculation (Refactored for stability)
-    if (pDiv <= 0) pDiv = 1152;
-    // Buffer size should be a multiple of 16-bytes for DMA efficiency
-    halfBufferSize  = 4096 * pDiv * ADC_NUM_CHANNELS; 
+    if (pDiv <= 0) pDiv = 1;
+    samplesPerChirp = 0;
+    GetCtrlVal(adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &samplesPerChirp);
+    if (samplesPerChirp == 0) samplesPerChirp = 1024;
+
+    /* DYNAMIC BUFFER SIZING: Target 50ms of data per half-buffer */
+    targetScans = (U32)(currentAdcSampleRateHz * 0.05);
+    if (targetScans < 8192) targetScans = 8192;
     
+    /* Align strictly to pDiv so radar sweeps do not straddle buffer edges awkwardly */
+    scansPerHalf = ((targetScans / pDiv) + 1) * pDiv;
+    halfBufferSize = scansPerHalf * ADC_NUM_CHANNELS;
+    adcTotalSamples = halfBufferSize * 2;
+
     if (dmaBuffer1) { WD_Buffer_Free(adcCard, dmaBuffer1); dmaBuffer1 = NULL; }
     if (dmaBuffer2) { WD_Buffer_Free(adcCard, dmaBuffer2); dmaBuffer2 = NULL; }
     WD_AI_ContBufferReset(adcCard);
@@ -1424,22 +1452,17 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
         return 0;
     }
 
-    // Register both halves into the driver's circular ring
     err = WD_AI_ContBufferSetup(adcCard, dmaBuffer1, halfBufferSize, &adcBufId);
     err = WD_AI_ContBufferSetup(adcCard, dmaBuffer2, halfBufferSize, &adcBufId);
-    
-    // Enable Double Buffer Mode
     WD_AI_AsyncDblBufferMode(adcCard, 1);
 
-    sprintf(diagMsg, "Config OK | Half-Buffer: %lu Samples", (unsigned long)halfBufferSize);
+    sprintf(diagMsg, "Config OK | Half-Buffer: %lu Samples (~50ms)", (unsigned long)halfBufferSize);
     SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
     
-    // UI Updates
     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SINGLE,    ATTR_DIMMED, 0);
     return 0;
 }
-
 int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
     I16 err;
@@ -1495,92 +1518,101 @@ int CVICALLBACK AdcSingleShotCB (int p, int c, int ev, void *cbd, int e1, int e2
     U32 totalScans, totalSamples;
     U16 *diagBuffer = NULL;
     U16 diagBufId;
+    BOOLEAN bStopped = FALSE;
+    U32 accessCnt = 0;
+    double startT;
 
     if (ev != EVENT_COMMIT || !adcRegistered) return 0;
 
-    /* 1. Determine burst geometry (1 full chirp) */
     GetCtrlVal(adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &samplesPerChirp);
     if (samplesPerChirp == 0) return 0;
 
-    totalScans = samplesPerChirp; 
+    totalScans = samplesPerChirp;
     totalSamples = totalScans * ADC_NUM_CHANNELS;
 
-    /* 2. Allocate isolated synchronous memory block */
     diagBuffer = (U16 *)WD_Buffer_Alloc(adcCard, totalSamples * sizeof(U16));
     if (!diagBuffer) {
         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Diag Memory Alloc Failed");
         return 0;
     }
 
-    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Waiting for Hardware Trigger...");
-    ProcessSystemEvents(); /* Force UI update before entering blocking execution */
+    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Waiting for Hardware Trigger (Max 5s)...");
+    ProcessSystemEvents();
 
-    /* Ensure double-buffer mode is off for synchronous single-shot */
     WD_AI_AsyncDblBufferMode(adcCard, 0);
-
     WD_AI_ContBufferReset(adcCard);
-    err = WD_AI_ContBufferSetup(adcCard, diagBuffer, totalSamples, &diagBufId);
 
-    /* 3. Single-shot trigger: POST mode, external digital, TrgCnt=1 (WD-DASK: valid ≥1) */
+    err = WD_AI_ContBufferSetup(adcCard, diagBuffer, totalSamples, &diagBufId);
     err = WD_AI_Trig_Config(adcCard, WD_AI_TRGMOD_POST, WD_AI_TRGSRC_ExtD,
                              WD_AI_TrgPositive, 0, 0.0, 0, 0, 0, 1);
 
-    /* 4. Execute Blocking Synchronous Read */
-    /* Execution will halt here until the clock and trigger physical requirements are met */
-    err = WD_AI_ContReadMultiChannels(adcCard, ADC_NUM_CHANNELS, chans, diagBufId, totalScans, 1, 1, SYNCH_OP);
-
-    /* 5. Process Diagnostic Results */
+    /* Run ASYNCHRONOUSLY to prevent UI freeze */
+    err = WD_AI_ContReadMultiChannels(adcCard, ADC_NUM_CHANNELS, chans, diagBufId, totalScans, 1, 1, ASYNCH_OP);
+    
     if (err == NoError) {
-        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Single-shot captured OK");
-        
-        /* Copy to plotting queue and force rendering */
-        memcpy(plotBuffer, diagBuffer, totalSamples * sizeof(U16));
-        plotSamples = samplesPerChirp;
-        plotBusy = 1;
-        ADC_PlotFFT_Deferred(NULL);
+        startT = Timer();
+        /* Poll the driver allowing the UI to breathe, with a 5.0 second timeout */
+        while (!bStopped && (Timer() - startT < 5.0)) {
+            WD_AI_AsyncCheck(adcCard, &bStopped, &accessCnt);
+            ProcessSystemEvents();
+            Sleep(10);
+        }
 
-        /* 5b. Offer to save single-shot data with radar header */
-        {
-            int saveChoice = ConfirmPopup("Save Single Shot",
-                "Save this capture to a binary file for MATLAB post-processing?");
-            if (saveChoice == 1) {
-                char savePath[MAX_PATHNAME_LEN];
-                int sel = FileSelectPopup("", "*.bin", "Binary Data (*.bin)",
-                                          "Save Single-Shot Data",
-                                          VAL_SAVE_BUTTON, 0, 0, 1, 1, savePath);
-                if (sel != VAL_NO_FILE_SELECTED) {
-                    FILE *fp = fopen(savePath, "wb");
-                    if (fp) {
-                        RadarFileHeader hdr;
-                        double startF, stopF, period;
-                        GetCtrlVal(ddsTabHandle, TABPANEL_DDS_NUM_START_FREQ, &startF);
-                        GetCtrlVal(ddsTabHandle, TABPANEL_DDS_NUM_STOP_FREQ,  &stopF);
-                        GetCtrlVal(ddsTabHandle, TABPANEL_DDS_NUM_PERIOD,      &period);
-                        memset(&hdr, 0, sizeof(hdr));
-                        hdr.magic               = RADAR_FILE_MAGIC;
-                        hdr.num_channels        = ADC_NUM_CHANNELS;
-                        hdr.samples_per_trigger = samplesPerChirp;
-                        hdr.num_triggers        = 1;
-                        hdr.sample_rate_hz      = currentAdcSampleRateHz;
-                        hdr.dds_start_freq_hz   = startF * 1e6;
-                        hdr.dds_stop_freq_hz    = stopF  * 1e6;
-                        hdr.dds_sweep_period_us = period;
-                        fwrite(&hdr, sizeof(hdr), 1, fp);
-                        fwrite(diagBuffer, sizeof(U16), totalSamples, fp);
-                        fclose(fp);
-                        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Single-shot saved OK");
+        if (!bStopped) {
+            /* Hardware never received external trigger */
+            WD_AI_AsyncClear(adcCard, &accessCnt, &accessCnt);
+            SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Single-shot TIMEOUT: No Ext Trigger");
+        } else {
+            /* Trigger captured successfully */
+            SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Single-shot captured OK");
+            
+            plotBusy = 1;
+            memcpy(plotBuffer, diagBuffer, totalSamples * sizeof(U16));
+            plotSamples = samplesPerChirp;
+            PostDeferredCall((DeferredCallbackPtr)ADC_PlotFFT_Deferred, NULL);
+
+            {
+                int saveChoice = ConfirmPopup("Save Single Shot",
+                    "Save this capture to a binary file for MATLAB post-processing?");
+                if (saveChoice == 1) {
+                    char savePath[MAX_PATHNAME_LEN];
+                    int sel = FileSelectPopup("", "*.bin", "Binary Data (*.bin)",
+                                              "Save Single-Shot Data",
+                                              VAL_SAVE_BUTTON, 0, 0, 1, 1, savePath);
+                    if (sel != VAL_NO_FILE_SELECTED) {
+                        FILE *fp = fopen(savePath, "wb");
+                        if (fp) {
+                            RadarFileHeader hdr;
+                            double startF, stopF, period;
+                            GetCtrlVal(ddsTabHandle, TABPANEL_DDS_NUM_START_FREQ, &startF);
+                            GetCtrlVal(ddsTabHandle, TABPANEL_DDS_NUM_STOP_FREQ,  &stopF);
+                            GetCtrlVal(ddsTabHandle, TABPANEL_DDS_NUM_PERIOD,      &period);
+
+                            memset(&hdr, 0, sizeof(hdr));
+                            hdr.magic               = RADAR_FILE_MAGIC;
+                            hdr.num_channels        = ADC_NUM_CHANNELS;
+                            hdr.samples_per_trigger = samplesPerChirp;
+                            hdr.num_triggers        = 1;
+                            hdr.sample_rate_hz      = currentAdcSampleRateHz;
+                            hdr.dds_start_freq_hz   = startF * 1e6;
+                            hdr.dds_stop_freq_hz    = stopF  * 1e6;
+                            hdr.dds_sweep_period_us = period;
+
+                            fwrite(&hdr, sizeof(hdr), 1, fp);
+                            fwrite(diagBuffer, sizeof(U16), totalSamples, fp);
+                            fclose(fp);
+                            SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Single-shot saved OK");
+                        }
                     }
                 }
             }
         }
     } else {
         char msg[128];
-        sprintf(msg, "Single-shot error: %d (scans=%lu, samp=%lu)", err,
-                (unsigned long)totalScans, (unsigned long)totalSamples);
+        sprintf(msg, "Single-shot execution error: %d", err);
         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
     }
 
-    /* 6. Clean up single-shot state */
     WD_AI_ContBufferReset(adcCard);
     WD_Buffer_Free(adcCard, diagBuffer);
     return 0;
