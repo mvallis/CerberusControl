@@ -1,6 +1,6 @@
 #include <windows.h>
+#include <ansi_c.h>
 #include <stdio.h>
-#include <conio.h>
 #include "wd-dask.h"
 #include "wddaskex.h"
 
@@ -15,8 +15,8 @@
 #define SCAN_INTERVAL  6000
 
 
-short ai_buf[SCANCOUNT];
-short ai_buf2[SCANCOUNT];
+U16 ai_buf[SCANCOUNT];
+U16 ai_buf2[SCANCOUNT];
 FILE *svfile;
 I16 card;
 U16 ai_range=0;
@@ -33,19 +33,55 @@ void write_to_file( U16 *buf, U32 write_count )
   }
 }
 
-main()
+/* Windows Console API replacement for conio.h kbhit() */
+int CheckKeyPressed(void) {
+    INPUT_RECORD inBuf;
+    DWORD numRead = 0;
+    HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+    
+    if (!PeekConsoleInput(hStdin, &inBuf, 1, &numRead)) {
+        return 0;
+    }
+    if (numRead == 0) return 0;
+    if (inBuf.EventType == KEY_EVENT && inBuf.Event.KeyEvent.bKeyDown) {
+        FlushConsoleInputBuffer(hStdin);  /* Clear the buffer */
+        return 1;
+    }
+    ReadConsoleInput(hStdin, &inBuf, 1, &numRead);  /* Remove the processed event */
+    return 0;
+}
+
+/* Windows Console API replacement for conio.h getch() */
+int WaitForKeyPress(void) {
+    INPUT_RECORD inBuf;
+    DWORD numRead = 0;
+    HANDLE hStdin = GetStdHandle(STD_INPUT_HANDLE);
+    
+    while (1) {
+        ReadConsoleInput(hStdin, &inBuf, 1, &numRead);
+        if (inBuf.EventType == KEY_EVENT && inBuf.Event.KeyEvent.bKeyDown) {
+            return inBuf.Event.KeyEvent.uChar.AsciiChar;
+        }
+    }
+}
+
+int main(void)
 {
-    I16 err, card_num,i,Id, tmpId = 0;
+    I16 err, card_num, tmpId = 0;
+    U16 Id = 0;
     BOOLEAN halfReady, fStop, fok=0;
     U32 count=0, count1, startPos;
 	U16 card_type = 1;
+    int fok_input = 0;
 
     printf("This program inputs %d scans from CH-0.\n", SCANCOUNT);
-	card_type = WD_ChooseDeviceType(0);
+	card_type = PCI_9846H;
 	printf("Please input a card number: ");
     scanf(" %hd", &card_num);
 	printf("Save data to a file (DmaData.dat): Yes(1) or No(0)? ");
-	scanf(" %d", &fok);
+	scanf(" %d", &fok_input);
+    fok = (BOOLEAN)fok_input;
+    FlushConsoleInputBuffer(GetStdHandle(STD_INPUT_HANDLE));  /* Clear keyboard buffer before acquisition */
     if ((card=WD_Register_Card (card_type, card_num)) <0 ) {
         printf("Register_Card error=%d", card);
         exit(1);
@@ -96,7 +132,7 @@ main()
 		if(fok)
            write_to_file( tmpId?ai_buf2:ai_buf, SCANCOUNT );
 		tmpId = (tmpId + 1) % 2;
-    } while(!kbhit());
+    } while(!CheckKeyPressed());
     WD_AI_AsyncClear(card, &startPos, &count1);
 	if(fok) {
 	 write_to_file( tmpId?ai_buf2:ai_buf, count1 ); 
@@ -104,5 +140,8 @@ main()
 	}
 	printf("\n\nTotal %d input data.\n", count+count1);
     WD_Release_Card(card);
-    printf("\nPress ENTER to exit the program. "); getch();
+    printf("\nPress ENTER to exit the program. "); WaitForKeyPress();
+    return 0;
 }
+
+// Data will currently be saved to the old directly @ ADCTests/PostExtDTrig as the fixed file name.

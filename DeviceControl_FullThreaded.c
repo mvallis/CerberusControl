@@ -105,6 +105,16 @@ static CmtThreadFunctionID consumerThreadID = 0;
 static CmtThreadFunctionID producerThreadID = 0;
 static volatile int isAcquiring         = 0; /* Replaces consumerRunning */
 
+/* ---- Queue Management (Data-Copy Strategy) ---- */
+static U32    queueMaxCapacity        = 20;   /* Max items in queue */
+static U32    queueHighWater          = 16;   /* 80% of capacity (back-pressure trigger) */
+static U32    queueLowWater           = 4;    /* 20% of capacity (resume trigger) */
+static volatile int queueBackPressure = 0;    /* Flag: when 1, producer waits before enqueue */
+static U32    bufferCopiesDropped     = 0;    /* Diagnostic: count of missed enqueues */
+static U32    maxQueueDepthObserved   = 0;    /* Diagnostic: peak queue depth in session */
+static U32    lastSessionMaxDepth     = 0;    /* Remember peak from previous session for adaptive sizing */
+static volatile U32 currentQueueDepth = 0;    /* Manual counter: items currently in queue */
+
 /* ---- FFT scratch ---- */
 static double fftReal[FFT_MAX_SIZE];
 static double fftImag[FFT_MAX_SIZE];
@@ -444,53 +454,74 @@ static void FFT_Radix2 (double *re, double *im, int n)
  *===========================================================================*/
 int CVICALLBACK DiskWriterThreadFunction (void *functionData)
 {
-    U16 *localBuf = malloc(halfBufferSize * sizeof(U16));
+    U16 *queueBuffer = malloc(halfBufferSize * sizeof(U16));
     static int writeCounter = 0;
-    if (!localBuf) return -1;
+    
+    if (!queueBuffer) return -1;
 
     while (isAcquiring) {
-        int itemsRead = CmtReadTSQData(dmaQueue, localBuf, 1, 100, 0);
+        /* Read copied buffer data from queue (waits up to 100ms) */
+        int itemsRead = CmtReadTSQData(dmaQueue, queueBuffer, 1, 100, 0);
         
         if (itemsRead > 0) {
+            /* ---- Decrement queue depth counter on successful dequeue ---- */
+            if (currentQueueDepth > 0) {
+                currentQueueDepth--;
+            }
+            
+            /* ---- Disk Write ---- */
             if (recordFile != NULL) {
-                fwrite(localBuf, sizeof(U16), halfBufferSize, recordFile);
+                fwrite(queueBuffer, sizeof(U16), halfBufferSize, recordFile);
                 recordedTrigs += (halfBufferSize / ADC_NUM_CHANNELS) / samplesPerChirp;
                 writeCounter++;
+                
+                /* Periodic flush to prevent massive I/O spike at end */
                 if (writeCounter % 10 == 0) {
+                    fflush(recordFile);
                     char msg[64];
-                    sprintf(msg, "Disk Write: %d blocks", writeCounter);
+                    sprintf(msg, "Write: %d blocks", writeCounter);
                     SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
                 }
             }
 
-            /* Pass data to UI plotting routine if idle */
-            if (!plotBusy && samplesPerChirp > 0 && currentProgDiv > 0) {
-                U32 halfSamplesPerCh = halfBufferSize / ADC_NUM_CHANNELS;
-                U32 startPhase = absoluteSampleCount % currentProgDiv;
-                U32 offsetToFirstChirp = (startPhase == 0) ? 0 : (currentProgDiv - startPhase);
+            /* ---- Plotting: Extract last complete chirp for FFT ---- */
+            /* For continuous operation, extract a chirp every N buffers based on trigger count.
+               If no explicit chirp samples are set, fall back to plotting the entire half-buffer. */
+            if (!plotBusy && (samplesPerChirp > 0 || halfBufferSize > 0)) {
+                U32 plotSize = samplesPerChirp;
                 
-                if (halfSamplesPerCh > (offsetToFirstChirp + samplesPerChirp)) {
-                    U32 n_max = (halfSamplesPerCh - samplesPerChirp - offsetToFirstChirp) / currentProgDiv;
-                    U32 lastChirpStart = offsetToFirstChirp + (n_max * currentProgDiv);
-                    U32 bufferOffset = lastChirpStart * ADC_NUM_CHANNELS;
-                    
-                    plotBusy = 1;
-                    memcpy(plotBuffer, localBuf + bufferOffset, samplesPerChirp * ADC_NUM_CHANNELS * sizeof(U16));
-                    plotSamples = samplesPerChirp;
-                    PostDeferredCall((DeferredCallbackPtr)ADC_PlotFFT_Deferred, NULL);
+                /* Fallback: if samplesPerChirp not set, use entire half-buffer */
+                if (plotSize == 0) {
+                    plotSize = halfBufferSize / ADC_NUM_CHANNELS;
                 }
+                
+                /* Ensure we don't exceed buffer bounds */
+                if (plotSize > halfBufferSize / ADC_NUM_CHANNELS) {
+                    plotSize = halfBufferSize / ADC_NUM_CHANNELS;
+                }
+                
+                plotBusy = 1;
+                memcpy(plotBuffer, queueBuffer, plotSize * ADC_NUM_CHANNELS * sizeof(U16));
+                plotSamples = plotSize;
+                PostDeferredCall((DeferredCallbackPtr)ADC_PlotFFT_Deferred, NULL);
             }
             absoluteSampleCount += (halfBufferSize / ADC_NUM_CHANNELS);
         }
     }
 
-    /* Flush queue on termination */
-    while (CmtReadTSQData(dmaQueue, localBuf, 1, 0, 0) > 0) {
-        if (recordFile) fwrite(localBuf, sizeof(U16), halfBufferSize, recordFile);
+    /* Flush queue on termination to capture remaining data */
+    while (CmtReadTSQData(dmaQueue, queueBuffer, 1, 0, 0) > 0) {
+        if (currentQueueDepth > 0) {
+            currentQueueDepth--;
+        }
+        if (recordFile) {
+            fwrite(queueBuffer, sizeof(U16), halfBufferSize, recordFile);
+            fflush(recordFile);
+        }
     }
 
     if (recordFile) fflush(recordFile);
-    free(localBuf);
+    free(queueBuffer);
     return 0;
 }
 
@@ -517,32 +548,80 @@ int CVICALLBACK HardwarePollThreadFunction (void *functionData)
     BOOLEAN halfReady, fStop;
     int activeBuf = 0;
     int queueStatus;
+    U16 *bufferCopy = NULL;
+    int adaptiveSleep = 1;
+
+    /* Pre-allocate a temporary buffer for data copy (avoids repeated malloc) */
+    bufferCopy = (U16 *)malloc(halfBufferSize * sizeof(U16));
+    if (!bufferCopy) {
+        PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, (void*)1);
+        return -1;
+    }
 
     while (isAcquiring) {
         WD_AI_AsyncDblBufferHalfReady(adcCard, &halfReady, &fStop);
         if (halfReady) {
             U16 *src = (activeBuf == 0) ? dmaBuffer1 : dmaBuffer2;
-            queueStatus = CmtWriteTSQData(dmaQueue, src, 1, 0, NULL);
-            if (queueStatus < 0 && isAcquiring) {
-                PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, (void*)1);
-                break;
-            }
-            activeBuf = 1 - activeBuf;
-            heartbeatCounter++;
             
-            // CRITICAL FIX: Tell the driver the buffer is free to be overwritten
-            WD_AI_AsyncDblBufferHandled(adcCard); 
+            /* ---- Check queue depth and apply back-pressure ---- */
+            if (currentQueueDepth >= queueHighWater) {
+                queueBackPressure = 1;  /* Signal to UI/diagnostics */
+            } else if (currentQueueDepth <= queueLowWater && queueBackPressure) {
+                queueBackPressure = 0;  /* Resume normal operation */
+            }
+            
+            /* Track peak queue depth for adaptive buffer sizing */
+            if (currentQueueDepth > maxQueueDepthObserved) {
+                maxQueueDepthObserved = currentQueueDepth;
+            }
+            
+            /* ---- If back-pressure active, wait before attempting enqueue ---- */
+            if (queueBackPressure) {
+                adaptiveSleep = 10;  /* Increase sleep to allow consumer to drain */
+            } else {
+                adaptiveSleep = 1;   /* Normal polling interval */
+            }
+            
+            /* ---- Copy half-buffer data into temporary buffer, then enqueue ---- */
+            memcpy(bufferCopy, src, halfBufferSize * sizeof(U16));
+            
+            queueStatus = CmtWriteTSQData(dmaQueue, bufferCopy, 1, 0, NULL);
+            if (queueStatus < 0) {
+                /* Queue is full—this should not happen with adaptive back-pressure */
+                bufferCopiesDropped++;
+                if (isAcquiring) {
+                    PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, (void*)1);
+                    break;
+                }
+            } else {
+                /* ---- Increment queue depth counter on successful enqueue ---- */
+                currentQueueDepth++;
+                
+                /* ---- CRITICAL: Only acknowledge buffer to hardware AFTER successful enqueue ---- */
+                /* This ensures the hardware won't overwrite the buffer while we're copying it */
+                WD_AI_AsyncDblBufferHandled(adcCard);
+                activeBuf = 1 - activeBuf;
+                heartbeatCounter++;
+            }
         }
         
-        if (fStop && isAcquiring) {
-            PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, (void*)0);
-            break;
-        }
-        /* Yielding cpu slice. 1ms sleep is fine once buffer is ~50ms wide */
-        Sleep(1);
+        /* For continuous triggered operation, fStop should only break on HARDWARE ERROR,
+           not normal operation. In continuous double-buffer mode per WD-DASK examples,
+           fStop is just a buffer event signal. The loop should only exit when user
+           clicks Stop (isAcquiring = 0) or a true queue error occurs (queueStatus < 0).
+           The hardware will keep cycling buffers indefinitely once armed. */
+        
+        /* No explicit fStop check here—it's just part of AsyncDblBufferHalfReady signaling. */
+        
+        /* Adaptive sleep: longer pause under back-pressure to allow consumer breathing room */
+        Sleep(adaptiveSleep);
     }
-	
-	
+
+    if (bufferCopy) {
+        free(bufferCopy);
+        bufferCopy = NULL;
+    }
+    
     return 0;
 }
 
@@ -1431,9 +1510,18 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
     GetCtrlVal(adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &samplesPerChirp);
     if (samplesPerChirp == 0) samplesPerChirp = 1024;
 
-    /* DYNAMIC BUFFER SIZING: Target 50ms of data per half-buffer */
+    /* ---- DYNAMIC BUFFER SIZING: Adaptive Based on Previous Session ---- */
+    /* Target 50ms of data per half-buffer, but increase margin if previous session had issues */
     targetScans = (U32)(currentAdcSampleRateHz * 0.05);
     if (targetScans < 8192) targetScans = 8192;
+    
+    /* If previous session hit overruns or high queue depth, add margin */
+    if (bufferCopiesDropped > 0 || lastSessionMaxDepth > queueHighWater) {
+        /* Increase buffer by 10% to reduce overrun risk */
+        targetScans = (U32)(targetScans * 1.1);
+        sprintf(diagMsg, "Adaptive: Buffer scaled +10%% due to previous overrun. New target: %lu scans", (unsigned long)targetScans);
+        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
+    }
     
     /* Align strictly to pDiv so radar sweeps do not straddle buffer edges awkwardly */
     scansPerHalf = ((targetScans / pDiv) + 1) * pDiv;
@@ -1467,6 +1555,7 @@ int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
     I16 err;
     U32 totalScansPerCh;
+    char diagMsg[256];
 
     if (ev != EVENT_COMMIT || !adcRegistered) return 0;
 
@@ -1475,6 +1564,9 @@ int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
 
     absoluteSampleCount = 0;
     heartbeatCounter = 0;
+    /* ReadScans = number of samples per channel in each half-buffer.
+       For continuous double-buffer operation, this is just the configured half-buffer size.
+       The hardware will cycle these buffers indefinitely until user stops acquisition. */
     totalScansPerCh = halfBufferSize / ADC_NUM_CHANNELS;
 
     WD_AI_ContBufferReset(adcCard);
@@ -1490,8 +1582,26 @@ int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
     WD_AI_ContBufferSetup(adcCard, dmaBuffer1, halfBufferSize, &adcBufId);
     WD_AI_ContBufferSetup(adcCard, dmaBuffer2, halfBufferSize, &adcBufId);
 
+    /* ---- Initialize Queue Management with Adaptive Capacity ---- */
+    /* If previous session had high queue depth, increase capacity to avoid overruns */
+    if (lastSessionMaxDepth > 12) {
+        queueMaxCapacity = 25;
+        queueHighWater = 20;  /* 80% */
+        queueLowWater = 5;    /* 20% */
+    } else {
+        queueMaxCapacity = 20;
+        queueHighWater = 16;  /* 80% */
+        queueLowWater = 4;    /* 20% */
+    }
+    
+    /* Reset diagnostic counters for this session */
+    bufferCopiesDropped = 0;
+    maxQueueDepthObserved = 0;
+    currentQueueDepth = 0;  /* Reset queue depth counter */
+    queueBackPressure = 0;
+
     /* Launch Threads */
-    CmtNewTSQ(20, halfBufferSize * sizeof(U16), OPT_TSQ_DYNAMIC_SIZE, &dmaQueue);
+    CmtNewTSQ(queueMaxCapacity, halfBufferSize * sizeof(U16), OPT_TSQ_DYNAMIC_SIZE, &dmaQueue);
     isAcquiring = 1;
     adcRunning = 1;
     CmtScheduleThreadPoolFunction(DEFAULT_THREAD_POOL_HANDLE, DiskWriterThreadFunction, NULL, &consumerThreadID);
@@ -1504,6 +1614,7 @@ int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Acquisition Armed [Dual-Buffer Polled]");
         SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
         SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 0);
+        SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,   ATTR_DIMMED, 0);  /* Enable Record button */
     } else {
         AdcStopCB(0, 0, EVENT_COMMIT, NULL, 0, 0);
         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Execution Failed");
@@ -1654,7 +1765,22 @@ int CVICALLBACK AdcStopCB (int p, int c, int ev, void *cbd, int e1, int e2)
         recording = 0;
     }
 
-    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Acquisition stopped cleanly");
+    /* ---- Save peak queue depth for adaptive sizing in next session ---- */
+    lastSessionMaxDepth = maxQueueDepthObserved;
+    
+    {
+        char diagMsg[256];
+        if (bufferCopiesDropped > 0) {
+            sprintf(diagMsg, "Stopped. OVERRUN: %lu buffers dropped, peak queue: %lu/%lu",
+                    (unsigned long)bufferCopiesDropped, (unsigned long)maxQueueDepthObserved, 
+                    (unsigned long)queueMaxCapacity);
+        } else {
+            sprintf(diagMsg, "Stopped cleanly. Peak queue depth: %lu/%lu",
+                    (unsigned long)maxQueueDepthObserved, (unsigned long)queueMaxCapacity);
+        }
+        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
+    }
+    
     SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
     SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
     

@@ -1,0 +1,3549 @@
+This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
+The content has been processed where comments have been removed, empty lines have been removed, line numbers have been added.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+- Pay special attention to the Repository Description. These contain important context and guidelines specific to this project.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: cvibuild.*/, *.obj, *.res, *.exe, *.dll, *.lib, *.cws, *.cdb, *.asv, *.slxc, slprj/, .claude/, mcp_config.json, repomix-output.xml, repomix-output.txt
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Code comments have been removed from supported file types
+- Empty lines have been removed from all files
+- Line numbers have been added to the beginning of each line
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<user_provided_header>
+CerberusControl Project - CVI/MATLAB Technical Context
+</user_provided_header>
+
+<directory_structure>
+.gitattributes
+.gitignore
+.repomixignore
+CLAUDE.md
+DASK Installation Guide.pdf
+DataTest/123.bin
+DataTest/HolyDBAMAYBE.bin
+DataTest/MAYBEEE.bin
+DataTest/NOITDOESNTQUITEWORK.bin
+DataTest/SingleShotData/NoRelay_Bench_NewHeader.bin
+DataTest/SingleShotData/NoRelay_Bench.bin
+DataTest/SingleShotData/NoRelay_Rail1.bin
+DataTest/SingleShotData/Relay_Rail1_1m14_1v.bin
+DataTest/SingleShotData/Relay_Rail1_1m14_5v.bin
+dds.c
+dds.h
+DeviceControl_Full_Threaded.prj
+DeviceControl_FullThreaded.c
+DeviceControl_FullThreaded.h
+DeviceControl_FullThreaded.uir
+EXAMPLE_DBCODE_PostExtTrg.c
+GEMINI.md
+README.md
+repomix.config.json
+TASKS.md
+WD-DASK Function Reference.pdf
+Wd-dask.h
+Wd-dask64.h
+wddaskex.h
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="repomix.config.json">
+ 1: {
+ 2:   "$schema": "https://repomix.com/repomix-config.schema.json",
+ 3:   "output": {
+ 4:     "filePath": "repomix-output.xml",
+ 5:     "style": "xml",
+ 6:     "removeComments": true,
+ 7:     "removeEmptyLines": true,
+ 8:     "showLineNumbers": true,
+ 9:     "copyToClipboard": false,
+10:     "headerText": "CerberusControl Project - CVI/MATLAB Technical Context"
+11:   },
+12:   "ignore": {
+13:     "useGitignore": true,
+14:     "useDefaultPatterns": true,
+15:     "customPatterns": [
+16:       "cvibuild.*/",
+17:       "*.obj",
+18:       "*.res",
+19:       "*.exe",
+20:       "*.dll",
+21:       "*.lib",
+22:       "*.cws",
+23:       "*.cdb",
+24:       "*.asv",
+25:       "*.slxc",
+26:       "slprj/",
+27:       ".claude/",
+28:       "mcp_config.json",
+29:       "repomix-output.xml",
+30:       "repomix-output.txt"
+31:     ]
+32:   },
+33:   "security": {
+34:     "enableSecurityCheck": true
+35:   }
+36: }
+</file>
+
+<file path=".gitattributes">
+1: *.uir binary
+2: *.prj binary
+</file>
+
+<file path=".gitignore">
+ 1: # CVI Junk Files
+ 2: *.cws
+ 3: *.cdb
+ 4: *.tmp
+ 5: *.bak
+ 6: cvibuild.*/
+ 7: # Compiled Binaries
+ 8: *.obj
+ 9: *.res
+10: *.exe
+11: *.dll
+12: *.lib
+13: 
+14: # === Additional MATLAB Specifics ===
+15: *.asv          # MATLAB Editor autosave files
+16: *.slxc         # Simulink cache files
+17: slprj/         # Simulink project folders
+18: 
+19: # === AI/Agentic Workflow Specifics ===
+20: .claude/       # Local Claude Code session data
+21: mcp_config.json # Local MCP server configuration
+</file>
+
+<file path=".repomixignore">
+1: # Add patterns to ignore here, one per line
+2: # Example:
+3: # *.log
+4: # tmp/
+</file>
+
+<file path="CLAUDE.md">
+1: Build Command: Use "C:\Program Files (x86)\National Instruments\CVI2020\cvi.exe" /build CerberusControl.prj to verify changes.
+2: 
+3: Environment: CVI 2020 uses an ANSI C compiler; avoid C++ features.
+4: 
+5: UI Handling: Remind Claude that .uir files are binary and should only be modified via the CVI User Interface Editor.
+</file>
+
+<file path="dds.c">
+  1: #include <stdio.h>
+  2: #include <stdlib.h>
+  3: #include <stdint.h>
+  4: #include <string.h>
+  5: #include <math.h>
+  6: #include "windows.h"
+  7: #include "dds.h"
+  8: static char   dds_com_port[64] = "\\\\.\\COM4";
+  9: static double dds_clock        = 3530000000.0;
+ 10: #define DDS_BAUDRATE 125000
+ 11: #define MAX_DATA_BYTES 8
+ 12: #define POWER_TWO_THIRTYTWO 4294967296.0
+ 13: static char to_hex[] = {'0', '1', '2', '3', '4', '5', '6', '7',
+ 14:                         '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+ 15: static HANDLE sh = NULL;
+ 16: void dds_set_com_port (const char *port)
+ 17: {
+ 18:     if (port != NULL)
+ 19:         strncpy (dds_com_port, port, sizeof(dds_com_port) - 1);
+ 20: }
+ 21: void dds_set_clock (double clock_hz)
+ 22: {
+ 23:     if (clock_hz > 0.0)
+ 24:         dds_clock = clock_hz;
+ 25: }
+ 26: double dds_get_clock (void)
+ 27: {
+ 28:     return dds_clock;
+ 29: }
+ 30: static int dds_check_response(void) {
+ 31:     int i;
+ 32:     DWORD read;
+ 33:     char buffer[6];
+ 34:     buffer[0] = 0;
+ 35:     for (i = 0; i != 6; i++) {
+ 36:         if ((!ReadFile(sh, buffer + i, 1, &read, NULL)) || (read != 1)) return 0;
+ 37:         if (buffer[i] == '\n') {
+ 38:             buffer[i] = 0;
+ 39:             break;
+ 40:         }
+ 41:         if (i == 5) return 0;
+ 42:     }
+ 43: #ifdef DDS_ENABLE_VERBOSE
+ 44:     printf("<== %s\n", buffer);
+ 45: #endif
+ 46:     if (strcmp(buffer, "okay") == 0) return 1;
+ 47:     return 0;
+ 48: }
+ 49: int dds_write_bytes(uint8_t address, int count, uint8_t* data) {
+ 50:     int i;
+ 51:     DWORD written;
+ 52:     char command[13 + 2 * MAX_DATA_BYTES];
+ 53:     if ((count < 1) || (count > MAX_DATA_BYTES)) return 0;
+ 54:     sprintf(command, "write,%02x,%x,", address, count);
+ 55:     for (i = 0; i != count; i++) {
+ 56:         command[2 * i + 11] = to_hex[data[i] >> 4];
+ 57:         command[2 * i + 12] = to_hex[data[i] & 15];
+ 58:     }
+ 59:     command[2 * i + 11] = '\n';
+ 60:     command[2 * i + 12] = 0;
+ 61:     WriteFile(sh, command, 20, &written, NULL);
+ 62:     FlushFileBuffers(sh);
+ 63: #ifdef DDS_ENABLE_VERBOSE
+ 64:     printf("==> %s", command);
+ 65: #endif
+ 66:     return dds_check_response();
+ 67: }
+ 68: int dds_write_uint8(uint8_t address, uint8_t param) {
+ 69:     return dds_write_bytes(address, 1, &param);
+ 70: }
+ 71: int dds_write_uint16(uint8_t address, uint16_t param) {
+ 72:     uint8_t data[2];
+ 73:     data[1] = param & 255;
+ 74:     data[0] = param >> 8;
+ 75:     return dds_write_bytes(address, 2, data);
+ 76: }
+ 77: int dds_write_uint16_pair(uint8_t address, uint16_t upper, uint16_t lower) {
+ 78:     uint8_t data[4];
+ 79:     data[3] = lower & 255;
+ 80:     data[2] = lower >> 8;
+ 81:     data[1] = upper & 255;
+ 82:     data[0] = upper >> 8;
+ 83:     return dds_write_bytes(address, 4, data);
+ 84: }
+ 85: int dds_write_uint32(uint8_t address, uint32_t param) {
+ 86:     int i;
+ 87:     uint8_t data[4];
+ 88:     for (i = 3; i != -1; i--) {
+ 89:         data[i] = param & 255;
+ 90:         param >>= 8;
+ 91:     }
+ 92:     return dds_write_bytes(address, 4, data);
+ 93: }
+ 94: int dds_write_uint32_pair(uint8_t address, uint32_t upper, uint32_t lower) {
+ 95:     int i;
+ 96:     uint8_t data[8];
+ 97:     for (i = 7; i != 3; i--) {
+ 98:         data[i] = lower & 255;
+ 99:         lower >>= 8;
+100:     }
+101:     for (; i != -1; i--) {
+102:         data[i] = upper & 255;
+103:         upper >>= 8;
+104:     }
+105:     return dds_write_bytes(address, 8, data);
+106: }
+107: int dds_write_uint64(uint8_t address, uint64_t param) {
+108:     int i;
+109:     uint8_t data[8];
+110:     for (i = 7; i != -1; i--) {
+111:         data[i] = param & 255;
+112:         param >>= 8;
+113:     }
+114:     return dds_write_bytes(address, 8, data);
+115: }
+116: int dds_read_bytes(uint8_t address, int count, uint8_t* data) {
+117:     int i;
+118:     DWORD written;
+119:     DWORD read;
+120:     uint8_t value;
+121:     char buffer[2 * MAX_DATA_BYTES + 1] = {0};
+122:     char command[11];
+123:     if ((count < 1) || (count > MAX_DATA_BYTES)) return 0;
+124:     sprintf(command, "read,%02x,%x\n", address, count);
+125:     WriteFile(sh, command, 10, &written, NULL);
+126:     FlushFileBuffers(sh);
+127: #ifdef DDS_ENABLE_VERBOSE
+128:     printf("==> %s", command);
+129: #endif
+130:     for (i = 0; i != 2 * MAX_DATA_BYTES + 1; i++) {
+131:         char in_char;
+132:         if ((!ReadFile(sh, &in_char, 1, &read, NULL)) || (read != 1)) return 0;
+133:         buffer[i] = in_char;
+134:         if (buffer[i] == '\n') {
+135:             buffer[i] = 0;
+136:             break;
+137:         }
+138:         if (i == 2 * MAX_DATA_BYTES) return 0;
+139:     }
+140: #ifdef DDS_ENABLE_VERBOSE
+141:     printf("<== %s\n", buffer);
+142: #endif
+143:     if (strcmp(buffer, "error") == 0) return 0;
+144:     for (i = 0; i != count; i++) {
+145:         char in_char = buffer[2 * i];
+146:         if ((in_char >= '0') && (in_char <= '9')) value = (uint8_t)(in_char - '0');
+147:         else if ((in_char >= 'a') && (in_char <= 'f')) value = (uint8_t)(in_char - 'a' + 10);
+148:         else return 0;
+149:         in_char = buffer[2 * i + 1];
+150:         if ((in_char >= '0') && (in_char <= '9')) data[i] = (uint8_t)((value << 4) + in_char - '0');
+151:         else if ((in_char >= 'a') && (in_char <= 'f')) data[i] = (uint8_t)((value << 4) + in_char - 'a' + 10);
+152:         else return 0;
+153:     }
+154:     return 1;
+155: }
+156: int dds_read_uint8(uint8_t address, uint8_t* param) {
+157:     return dds_read_bytes(address, 1, param);
+158: }
+159: int dds_read_uint16(uint8_t address, uint16_t* param) {
+160:     uint8_t data[2];
+161:     if (dds_read_bytes(address, 2, data)) {
+162:         *param = (uint16_t)((data[0] << 8) + data[1]);
+163:         return 1;
+164:     }
+165:     return 0;
+166: }
+167: int dds_read_uint16_pair(uint8_t address, uint16_t* upper, uint16_t* lower) {
+168:     uint8_t data[4];
+169:     if (dds_read_bytes(address, 4, data)) {
+170:         *upper = (uint16_t)((data[0] << 8) + data[1]);
+171:         *lower = (uint16_t)((data[2] << 8) + data[3]);
+172:         return 1;
+173:     }
+174:     return 0;
+175: }
+176: int dds_read_uint32(uint8_t address, uint32_t* param) {
+177:     uint8_t data[4];
+178:     if (dds_read_bytes(address, 4, data)) {
+179:         *param = (data[0] << 24) + (data[1] << 16) + (data[2] << 8) + data[3];
+180:         return 1;
+181:     }
+182:     return 0;
+183: }
+184: int dds_read_uint32_pair(uint8_t address, uint32_t* upper, uint32_t* lower) {
+185:     uint8_t data[8];
+186:     if (dds_read_bytes(address, 8, data)) {
+187:         *upper = (data[0] << 24) + (data[1] << 16) + (data[2] << 8) + data[3];
+188:         *lower = (data[4] << 24) + (data[5] << 16) + (data[6] << 8) + data[7];
+189:         return 1;
+190:     }
+191:     return 0;
+192: }
+193: int dds_read_uint64(uint8_t address, uint64_t* param) {
+194:     uint8_t data[8];
+195:     if (dds_read_bytes(address, 8, data)) {
+196:         *param = ((uint64_t)data[0] << 56) + ((uint64_t)data[1] << 48) +
+197:                  ((uint64_t)data[2] << 40) + ((uint64_t)data[3] << 32) +
+198:                  ((uint64_t)data[4] << 24) + ((uint64_t)data[5] << 16) +
+199:                  ((uint64_t)data[6] << 8)  +  (uint64_t)data[7];
+200:         return 1;
+201:     }
+202:     return 0;
+203: }
+204: int dds_reset(void) {
+205:     DWORD written;
+206:     WriteFile(sh, "reset\n", 6, &written, NULL);
+207:     FlushFileBuffers(sh);
+208: #ifdef DDS_ENABLE_VERBOSE
+209:     printf("==> reset\n");
+210: #endif
+211:     return dds_check_response();
+212: }
+213: int dds_update(void) {
+214:     DWORD written;
+215:     WriteFile(sh, "update\n", 7, &written, NULL);
+216:     FlushFileBuffers(sh);
+217: #ifdef DDS_ENABLE_VERBOSE
+218:     printf("==> update\n");
+219: #endif
+220:     return dds_check_response();
+221: }
+222: int dds_powerup(void) {
+223:     DWORD written;
+224:     WriteFile(sh, "powerup\n", 8, &written, NULL);
+225:     FlushFileBuffers(sh);
+226: #ifdef DDS_ENABLE_VERBOSE
+227:     printf("==> powerup\n");
+228: #endif
+229:     return dds_check_response();
+230: }
+231: int dds_powerdown(void) {
+232:     DWORD written;
+233:     WriteFile(sh, "powerdown\n", 10, &written, NULL);
+234:     FlushFileBuffers(sh);
+235: #ifdef DDS_ENABLE_VERBOSE
+236:     printf("==> powerdown\n");
+237: #endif
+238:     return dds_check_response();
+239: }
+240: int dds_hello(void) {
+241:     DWORD written;
+242:     WriteFile(sh, "hello\n", 6, &written, NULL);
+243:     FlushFileBuffers(sh);
+244: #ifdef DDS_ENABLE_VERBOSE
+245:     printf("==> hello\n");
+246: #endif
+247:     return dds_check_response();
+248: }
+249: int dds_drctrl(int invert) {
+250:     DWORD written;
+251:     char command[12];
+252:     sprintf(command, "drctrl,%d\n", invert ? 1 : 0);
+253:     WriteFile(sh, command, (DWORD)strlen(command), &written, NULL);
+254:     FlushFileBuffers(sh);
+255: #ifdef DDS_ENABLE_VERBOSE
+256:     printf("==> %s", command);
+257: #endif
+258:     return dds_check_response();
+259: }
+260: int dds_drover(int invert) {
+261:     DWORD written;
+262:     char command[12];
+263:     sprintf(command, "drover,%d\n", invert ? 1 : 0);
+264:     WriteFile(sh, command, (DWORD)strlen(command), &written, NULL);
+265:     FlushFileBuffers(sh);
+266: #ifdef DDS_ENABLE_VERBOSE
+267:     printf("==> %s", command);
+268: #endif
+269:     return dds_check_response();
+270: }
+271: int ad9914_calibrate_dac(void) {
+272:     if (!dds_write_uint32(0x03, 0x01052120)) return 0;
+273:     if (!dds_update()) return 0;
+274:     Sleep(1000);
+275:     if (!dds_write_uint32(0x03, 0x00052120)) return 0;
+276:     if (!dds_update()) return 0;
+277:     return 1;
+278: }
+279: int ad9914_single_tone(double frequency, double* actual_frequency) {
+280:     uint32_t word;
+281:     if (frequency > dds_clock) return 0;
+282:     word = (uint32_t)(0.5 + 1000000.0 * frequency * POWER_TWO_THIRTYTWO / dds_clock);
+283:     if (!dds_write_uint32(0x01, 0x00800900)) return 0;
+284:     if (!dds_write_uint32(0x0b, word)) return 0;
+285:     if (!dds_write_uint32(0x0c, 0x00000000)) return 0;
+286:     if (actual_frequency != NULL)
+287:         *actual_frequency = ((double)word) * dds_clock / (1000000.0 * POWER_TWO_THIRTYTWO);
+288:     return 1;
+289: }
+290: int ad9914_ramp_generator(double start_freq, double stop_freq, double period,
+291:                           uint32_t flags, double* actual_start,
+292:                           double* actual_stop, double* actual_period)
+293: {
+294:     double steps, round_steps, bandwidth;
+295:     uint32_t start_word, step_size, stop_word, cfr2;
+296:     if ((stop_freq < start_freq) || (start_freq < 0) ||
+297:         (stop_freq > dds_clock) || (period <= 0))
+298:         return 0;
+299:     steps       = period * dds_clock / (1000000.0 * 24.0);
+300:     round_steps = ceil(steps);
+301:     bandwidth   = stop_freq * round_steps / steps - start_freq;
+302:     start_word  = (uint32_t)(0.5 + 1000000.0 * start_freq *
+303:                   POWER_TWO_THIRTYTWO / dds_clock);
+304:     step_size   = (uint32_t)(0.5 + (1000000.0 * bandwidth *
+305:                   POWER_TWO_THIRTYTWO / dds_clock) / round_steps);
+306:     stop_word   = start_word + step_size * ((uint32_t)round_steps);
+307:     cfr2 = 0x00082900;
+308:     if (flags & DRG_NO_DWELL_LOW)  cfr2 |= (1 << 17);
+309:     if (flags & DRG_NO_DWELL_HIGH) cfr2 |= (1 << 18);
+310:     if (!dds_write_uint32(0x01, cfr2))           return 0;
+311:     if (!dds_write_uint32(0x04, start_word))     return 0;
+312:     if (!dds_write_uint32(0x05, stop_word))      return 0;
+313:     if (!dds_write_uint32(0x06, step_size))      return 0;
+314:     if (!dds_write_uint32(0x07, step_size))      return 0;
+315:     if (!dds_write_uint16_pair(0x08, 1, 1))      return 0;
+316:     if (!dds_write_uint32(0x09, 0))              return 0;
+317:     if (!dds_write_uint32(0x0a, 0))              return 0;
+318:     if (actual_start  != NULL)
+319:         *actual_start  = ((double)start_word) * dds_clock /
+320:                          (1000000.0 * POWER_TWO_THIRTYTWO);
+321:     if (actual_stop   != NULL)
+322:         *actual_stop   = ((double)stop_word)  * dds_clock /
+323:                          (1000000.0 * POWER_TWO_THIRTYTWO);
+324:     if (actual_period != NULL)
+325:         *actual_period = 1000000.0 * round_steps * 24.0 / dds_clock;
+326:     return 1;
+327: }
+328: int init_dds(void) {
+329:     DCB sparms;
+330:     COMMTIMEOUTS timeouts;
+331:     sh = CreateFile(dds_com_port, GENERIC_READ | GENERIC_WRITE,
+332:                     0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+333:     if (sh == INVALID_HANDLE_VALUE) return 0;
+334:     sparms.DCBlength = sizeof(sparms);
+335:     GetCommState(sh, &sparms);
+336:     sparms.BaudRate         = DDS_BAUDRATE;
+337:     sparms.StopBits         = ONESTOPBIT;
+338:     sparms.Parity           = NOPARITY;
+339:     sparms.fBinary          = TRUE;
+340:     sparms.fParity          = FALSE;
+341:     sparms.fOutxCtsFlow     = FALSE;
+342:     sparms.fOutxDsrFlow     = FALSE;
+343:     sparms.fDtrControl      = DTR_CONTROL_DISABLE;
+344:     sparms.fDsrSensitivity  = FALSE;
+345:     sparms.fOutX            = FALSE;
+346:     sparms.fInX             = FALSE;
+347:     sparms.fErrorChar       = FALSE;
+348:     sparms.fNull            = FALSE;
+349:     sparms.fRtsControl      = RTS_CONTROL_DISABLE;
+350:     sparms.fAbortOnError    = FALSE;
+351:     sparms.ByteSize         = 8;
+352:     if (!SetCommState(sh, &sparms)) goto error;
+353:     timeouts.ReadIntervalTimeout         = 1000;
+354:     timeouts.ReadTotalTimeoutMultiplier  = 0;
+355:     timeouts.ReadTotalTimeoutConstant    = 1000;
+356:     timeouts.WriteTotalTimeoutMultiplier = 0;
+357:     timeouts.WriteTotalTimeoutConstant   = 1000;
+358:     if (!SetCommTimeouts(sh, &timeouts)) goto error;
+359:     if (dds_hello()) return 1;
+360:     else if (dds_hello()) return 1;
+361: error:
+362:     CloseHandle(sh);
+363:     sh = NULL;
+364:     return 0;
+365: }
+366: int deinit_dds(void) {
+367:     if (sh == NULL) return 0;
+368:     CloseHandle(sh);
+369:     sh = NULL;
+370:     return 1;
+371: }
+</file>
+
+<file path="dds.h">
+ 1: #ifndef DDS_H
+ 2: #define DDS_H
+ 3: #include <stdint.h>
+ 4: #define DRG_NO_DWELL_LOW 1
+ 5: #define DRG_NO_DWELL_HIGH 2
+ 6: #define DRG_NO_DWELL 3
+ 7: void dds_set_com_port (const char *port);
+ 8: void dds_set_clock    (double clock_hz);
+ 9: double dds_get_clock  (void);
+10: int dds_write_bytes(uint8_t address, int count, uint8_t* data);
+11: int dds_write_uint8(uint8_t address, uint8_t param);
+12: int dds_write_uint16(uint8_t address, uint16_t param);
+13: int dds_write_uint16_pair(uint8_t address, uint16_t upper, uint16_t lower);
+14: int dds_write_uint32(uint8_t address, uint32_t param);
+15: int dds_write_uint32_pair(uint8_t address, uint32_t upper, uint32_t lower);
+16: int dds_write_uint64(uint8_t address, uint64_t param);
+17: int dds_read_bytes(uint8_t address, int count, uint8_t* data);
+18: int dds_read_uint8(uint8_t address, uint8_t* param);
+19: int dds_read_uint16(uint8_t address, uint16_t* param);
+20: int dds_read_uint16_pair(uint8_t address, uint16_t* upper, uint16_t* lower);
+21: int dds_read_uint32(uint8_t address, uint32_t* param);
+22: int dds_read_uint32_pair(uint8_t address, uint32_t* upper, uint32_t* lower);
+23: int dds_read_uint64(uint8_t address, uint64_t* param);
+24: int dds_reset(void);
+25: int dds_update(void);
+26: int dds_powerup(void);
+27: int dds_powerdown(void);
+28: int dds_hello(void);
+29: int dds_drctrl(int invert);
+30: int dds_drover(int invert);
+31: int ad9914_calibrate_dac(void);
+32: int ad9914_single_tone(double frequency, double* actual_frequency);
+33: int ad9914_ramp_generator(double start_freq, double stop_freq, double period, uint32_t flags, double* actual_start, double* actual_stop, double* actual_period);
+34: int init_dds(void);
+35: int deinit_dds(void);
+36: #endif
+</file>
+
+<file path="DeviceControl_Full_Threaded.prj">
+  1: [Project Header]
+  2: Version = 2000
+  3: Encoding = "UTF-8"
+  4: Pathname Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/DeviceControl_Fu"
+  5: Pathname Line0002 = "ll_Threaded.prj"
+  6: Project Label = "DeviceControl_FullThreaded"
+  7: CVI Dir = "/c/program files (x86)/national instruments/cvi2020"
+  8: CVI Shared Dir = "/C/Program Files (x86)/National Instruments/Shared/CVI"
+  9: CVI Pub Local Dir = "/C/ProgramData/National Instruments/CVI2020"
+ 10: CVI Pub Global Dir = "/C/ProgramData/National Instruments/CVI"
+ 11: IVI Standard Root Dir = "/c/Program Files/IVI Foundation/IVI"
+ 12: VXIplug&play Framework Dir = "/C/Program Files (x86)/IVI Foundation/VISA/winnt"
+ 13: IVI Standard Root 64-bit Dir = "/C/Program Files/IVI Foundation/IVI"
+ 14: VXIplug&play Framework 64-bit Dir = "/C/Program Files/IVI Foundation/VISA/win64"
+ 15: Number of Files = 8
+ 16: Target Type = "Executable"
+ 17: Flags = 2064
+ 18: Copied From Locked InstrDrv Directory = False
+ 19: Copied from VXIPNP Directory = False
+ 20: Locked InstrDrv Name = ""
+ 21: Don't Display Deploy InstrDrv Dialog = False
+ 22: 
+ 23: [Folders]
+ 24: Instrument Files Folder Not Added Yet = True
+ 25: Folder 0 = "User Interface Files"
+ 26: FolderEx 0 = "User Interface Files"
+ 27: Folder 1 = "Include Files"
+ 28: FolderEx 1 = "Include Files"
+ 29: Folder 2 = "Source Files"
+ 30: FolderEx 2 = "Source Files"
+ 31: Folder 3 = "Library Files"
+ 32: FolderEx 3 = "Library Files"
+ 33: 
+ 34: [File 0001]
+ 35: File Type = "User Interface Resource"
+ 36: Res Id = 1
+ 37: Path Is Rel = True
+ 38: Path Rel To = "Project"
+ 39: Path Rel Path = "DeviceControl_FullThreaded.uir"
+ 40: Path Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/DeviceControl_Fu"
+ 41: Path Line0002 = "llThreaded.uir"
+ 42: Exclude = False
+ 43: Project Flags = 0
+ 44: Folder = "User Interface Files"
+ 45: Folder Id = 0
+ 46: 
+ 47: [File 0002]
+ 48: File Type = "Include"
+ 49: Res Id = 2
+ 50: Path Is Rel = True
+ 51: Path Rel To = "Project"
+ 52: Path Rel Path = "dds.h"
+ 53: Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/dds.h"
+ 54: Exclude = False
+ 55: Project Flags = 0
+ 56: Folder = "Include Files"
+ 57: Folder Id = 1
+ 58: 
+ 59: [File 0003]
+ 60: File Type = "Include"
+ 61: Res Id = 3
+ 62: Path Is Rel = True
+ 63: Path Rel To = "Project"
+ 64: Path Rel Path = "DeviceControl_FullThreaded.h"
+ 65: Path Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/DeviceControl_Fu"
+ 66: Path Line0002 = "llThreaded.h"
+ 67: Exclude = False
+ 68: Project Flags = 0
+ 69: Folder = "Include Files"
+ 70: Folder Id = 1
+ 71: 
+ 72: [File 0004]
+ 73: File Type = "Include"
+ 74: Res Id = 4
+ 75: Path Is Rel = True
+ 76: Path Rel To = "Project"
+ 77: Path Rel Path = "Wd-dask.h"
+ 78: Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/Wd-dask.h"
+ 79: Exclude = False
+ 80: Project Flags = 0
+ 81: Folder = "Include Files"
+ 82: Folder Id = 1
+ 83: 
+ 84: [File 0005]
+ 85: File Type = "Include"
+ 86: Res Id = 5
+ 87: Path Is Rel = True
+ 88: Path Rel To = "Project"
+ 89: Path Rel Path = "wddaskex.h"
+ 90: Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/wddaskex.h"
+ 91: Exclude = False
+ 92: Project Flags = 0
+ 93: Folder = "Include Files"
+ 94: Folder Id = 1
+ 95: 
+ 96: [File 0006]
+ 97: File Type = "CSource"
+ 98: Res Id = 6
+ 99: Path Is Rel = True
+100: Path Rel To = "Project"
+101: Path Rel Path = "dds.c"
+102: Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/dds.c"
+103: Exclude = False
+104: Compile Into Object File = False
+105: Project Flags = 0
+106: Folder = "Source Files"
+107: Folder Id = 2
+108: 
+109: [File 0007]
+110: File Type = "CSource"
+111: Res Id = 7
+112: Path Is Rel = True
+113: Path Rel To = "Project"
+114: Path Rel Path = "DeviceControl_FullThreaded.c"
+115: Path Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/DeviceControl_Fu"
+116: Path Line0002 = "llThreaded.c"
+117: Exclude = False
+118: Compile Into Object File = False
+119: Project Flags = 0
+120: Folder = "Source Files"
+121: Folder Id = 2
+122: 
+123: [File 0008]
+124: File Type = "Library"
+125: Res Id = 8
+126: Path Is Rel = True
+127: Path Rel To = "Project"
+128: Path Rel Path = "WD-Dask.lib"
+129: Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/WD-Dask.lib"
+130: Exclude = False
+131: Project Flags = 0
+132: Folder = "Library Files"
+133: Folder Id = 3
+134: 
+135: [Custom Build Configs]
+136: Num Custom Build Configs = 0
+137: 
+138: [Default Build Config Debug]
+139: Config Name = "Debug"
+140: Is 64-Bit = False
+141: Is Release = False
+142: Default Calling Convention = "cdecl"
+143: Optimization Level = "Optimize for speed (level 2)"
+144: Require Prototypes = True
+145: Show Warning IDs in Build Output = False
+146: Selected Warning Level = "Common"
+147: Warning List None = "41"
+148: Error List None = "41"
+149: Warning List Common = ""
+150: Error List Common = ""
+151: Warning List Extended = ""
+152: Error List Extended = ""
+153: Warning List All = ""
+154: Error List All = ""
+155: Warning Mode = 0
+156: Enable Unreferenced Identifiers Warning = True
+157: Enable Pointer Mismatch Warning = True
+158: Enable Unreachable Code Warning = True
+159: Enable Assignment In Conditional Warning = True
+160: Uninitialized Locals Compile Warning = "Aggressive"
+161: Require Return Values = True
+162: Enable C99 Extensions = True
+163: Enable OpenMP Extensions = False
+164: Stack Size = 250000
+165: Stack Reserve = 1048576
+166: Stack Commit = 4096
+167: Image Base Address = 4194304
+168: Image Base Address x64 = 4194304
+169: Compiler Defines = "/DWIN32_LEAN_AND_MEAN"
+170: Sign = False
+171: Sign Store = ""
+172: Sign Certificate = ""
+173: Sign Timestamp URL = ""
+174: Sign URL = ""
+175: Manifest Embed = False
+176: Icon File Is Rel = False
+177: Icon File = ""
+178: Application Title = ""
+179: Use IVI Subdirectories for Import Libraries = False
+180: Use VXIPNP Subdirectories for Import Libraries = False
+181: Use Dflt Import Lib Base Name = True
+182: Where to Copy DLL = "Do not copy"
+183: Custom Directory to Copy DLL Is Rel = False
+184: Custom Directory to Copy DLL = ""
+185: Generate Source Documentation = "None"
+186: Runtime Support = "Full Runtime Support"
+187: Runtime Binding = "Shared"
+188: Embed Project .UIRs = False
+189: Generate Map File = False
+190: Embed Timestamp = True
+191: Create Console Application = False
+192: Using LoadExternalModule = False
+193: DLL Exports = "Include File Symbols"
+194: Register ActiveX Server = False
+195: Numeric File Version = "1,0,0,0"
+196: Numeric Prod Version = "1,0,0,0"
+197: Comments = ""
+198: Comments Ex = ""
+199: Company Name = "University of St Andrews"
+200: Company Name Ex = "%company"
+201: File Description = "Full_Device_UI (Debug x86)"
+202: File Description Ex = "%application (%rel_dbg %arch)"
+203: File Version = "1.0"
+204: File Version Ex = "%f1.%f2"
+205: Internal Name = "Full_Device_UI"
+206: Internal Name Ex = "%basename"
+207: Legal Copyright = "Copyright  University of St Andrews 2026"
+208: Legal Copyright Ex = "Copyright  %company %Y"
+209: Legal Trademarks = ""
+210: Legal Trademarks Ex = ""
+211: Original Filename = "Full_Device_UI.exe"
+212: Original Filename Ex = "%filename"
+213: Private Build = ""
+214: Private Build Ex = ""
+215: Product Name = "University of St Andrews Full_Device_UI"
+216: Product Name Ex = "%company %application"
+217: Product Version = "1.0"
+218: Product Version Ex = "%p1.%p2"
+219: Special Build = ""
+220: Special Build Ex = ""
+221: Add Type Lib To DLL = False
+222: Include Type Lib Help Links = False
+223: TLB Help Style = "HLP"
+224: Type Lib FP File Is Rel = False
+225: Type Lib FP File = ""
+226: Add NI Type Info To DLL = False
+227: Use Single Header for NI Type Info = False
+228: Single Header NI Type Info File Is Rel = False
+229: Single Header NI Type Info File = ""
+230: 
+231: [Default Build Config Release]
+232: Config Name = "Release"
+233: Is 64-Bit = False
+234: Is Release = True
+235: Default Calling Convention = "cdecl"
+236: Optimization Level = "Optimize for speed (level 2)"
+237: Require Prototypes = True
+238: Show Warning IDs in Build Output = False
+239: Selected Warning Level = "Common"
+240: Warning List None = "41"
+241: Error List None = "41"
+242: Warning List Common = ""
+243: Error List Common = ""
+244: Warning List Extended = ""
+245: Error List Extended = ""
+246: Warning List All = ""
+247: Error List All = ""
+248: Warning Mode = 0
+249: Enable Unreferenced Identifiers Warning = True
+250: Enable Pointer Mismatch Warning = True
+251: Enable Unreachable Code Warning = True
+252: Enable Assignment In Conditional Warning = True
+253: Uninitialized Locals Compile Warning = "Aggressive"
+254: Require Return Values = True
+255: Enable C99 Extensions = True
+256: Enable OpenMP Extensions = False
+257: Stack Size = 250000
+258: Stack Reserve = 1048576
+259: Stack Commit = 4096
+260: Image Base Address = 4194304
+261: Image Base Address x64 = 4194304
+262: Compiler Defines = "/DWIN32_LEAN_AND_MEAN"
+263: Sign = False
+264: Sign Store = ""
+265: Sign Certificate = ""
+266: Sign Timestamp URL = ""
+267: Sign URL = ""
+268: Manifest Embed = False
+269: Icon File Is Rel = False
+270: Icon File = ""
+271: Application Title = ""
+272: Use IVI Subdirectories for Import Libraries = False
+273: Use VXIPNP Subdirectories for Import Libraries = False
+274: Use Dflt Import Lib Base Name = True
+275: Where to Copy DLL = "Do not copy"
+276: Custom Directory to Copy DLL Is Rel = False
+277: Custom Directory to Copy DLL = ""
+278: Generate Source Documentation = "None"
+279: Runtime Support = "Full Runtime Support"
+280: Runtime Binding = "Shared"
+281: Embed Project .UIRs = False
+282: Generate Map File = False
+283: Embed Timestamp = True
+284: Create Console Application = False
+285: Using LoadExternalModule = False
+286: DLL Exports = "Include File Symbols"
+287: Register ActiveX Server = False
+288: Numeric File Version = "1,0,0,0"
+289: Numeric Prod Version = "1,0,0,0"
+290: Comments = ""
+291: Comments Ex = ""
+292: Company Name = "University of St Andrews"
+293: Company Name Ex = "%company"
+294: File Description = "Full_Device_UI (Release x86)"
+295: File Description Ex = "%application (%rel_dbg %arch)"
+296: File Version = "1.0"
+297: File Version Ex = "%f1.%f2"
+298: Internal Name = "Full_Device_UI"
+299: Internal Name Ex = "%basename"
+300: Legal Copyright = "Copyright  University of St Andrews 2026"
+301: Legal Copyright Ex = "Copyright  %company %Y"
+302: Legal Trademarks = ""
+303: Legal Trademarks Ex = ""
+304: Original Filename = "Full_Device_UI.exe"
+305: Original Filename Ex = "%filename"
+306: Private Build = ""
+307: Private Build Ex = ""
+308: Product Name = "University of St Andrews Full_Device_UI"
+309: Product Name Ex = "%company %application"
+310: Product Version = "1.0"
+311: Product Version Ex = "%p1.%p2"
+312: Special Build = ""
+313: Special Build Ex = ""
+314: Add Type Lib To DLL = False
+315: Include Type Lib Help Links = False
+316: TLB Help Style = "HLP"
+317: Type Lib FP File Is Rel = False
+318: Type Lib FP File = ""
+319: Add NI Type Info To DLL = False
+320: Use Single Header for NI Type Info = False
+321: Single Header NI Type Info File Is Rel = False
+322: Single Header NI Type Info File = ""
+323: 
+324: [Default Build Config Debug64]
+325: Config Name = "Debug64"
+326: Is 64-Bit = True
+327: Is Release = False
+328: Default Calling Convention = "cdecl"
+329: Optimization Level = "Optimize for speed (level 2)"
+330: Require Prototypes = True
+331: Show Warning IDs in Build Output = False
+332: Selected Warning Level = "Common"
+333: Warning List None = "41"
+334: Error List None = "41"
+335: Warning List Common = ""
+336: Error List Common = ""
+337: Warning List Extended = ""
+338: Error List Extended = ""
+339: Warning List All = ""
+340: Error List All = ""
+341: Warning Mode = 0
+342: Enable Unreferenced Identifiers Warning = True
+343: Enable Pointer Mismatch Warning = True
+344: Enable Unreachable Code Warning = True
+345: Enable Assignment In Conditional Warning = True
+346: Uninitialized Locals Compile Warning = "Aggressive"
+347: Require Return Values = True
+348: Enable C99 Extensions = True
+349: Enable OpenMP Extensions = False
+350: Stack Size = 250000
+351: Stack Reserve = 1048576
+352: Stack Commit = 4096
+353: Image Base Address = 4194304
+354: Image Base Address x64 = 4194304
+355: Compiler Defines = "/DWIN32_LEAN_AND_MEAN"
+356: Sign = False
+357: Sign Store = ""
+358: Sign Certificate = ""
+359: Sign Timestamp URL = ""
+360: Sign URL = ""
+361: Manifest Embed = False
+362: Icon File Is Rel = False
+363: Icon File = ""
+364: Application Title = ""
+365: Use IVI Subdirectories for Import Libraries = False
+366: Use VXIPNP Subdirectories for Import Libraries = False
+367: Use Dflt Import Lib Base Name = True
+368: Where to Copy DLL = "Do not copy"
+369: Custom Directory to Copy DLL Is Rel = False
+370: Custom Directory to Copy DLL = ""
+371: Generate Source Documentation = "None"
+372: Runtime Support = "Full Runtime Support"
+373: Runtime Binding = "Shared"
+374: Embed Project .UIRs = False
+375: Generate Map File = False
+376: Embed Timestamp = True
+377: Create Console Application = False
+378: Using LoadExternalModule = False
+379: DLL Exports = "Include File Symbols"
+380: Register ActiveX Server = False
+381: Add Type Lib To DLL = False
+382: Include Type Lib Help Links = False
+383: TLB Help Style = "HLP"
+384: Type Lib FP File Is Rel = False
+385: Type Lib FP File = ""
+386: Add NI Type Info To DLL = False
+387: Use Single Header for NI Type Info = False
+388: Single Header NI Type Info File Is Rel = False
+389: Single Header NI Type Info File = ""
+390: 
+391: [Default Build Config Release64]
+392: Config Name = "Release64"
+393: Is 64-Bit = True
+394: Is Release = True
+395: Default Calling Convention = "cdecl"
+396: Optimization Level = "Optimize for speed (level 2)"
+397: Require Prototypes = True
+398: Show Warning IDs in Build Output = False
+399: Selected Warning Level = "Common"
+400: Warning List None = "41"
+401: Error List None = "41"
+402: Warning List Common = ""
+403: Error List Common = ""
+404: Warning List Extended = ""
+405: Error List Extended = ""
+406: Warning List All = ""
+407: Error List All = ""
+408: Warning Mode = 0
+409: Enable Unreferenced Identifiers Warning = True
+410: Enable Pointer Mismatch Warning = True
+411: Enable Unreachable Code Warning = True
+412: Enable Assignment In Conditional Warning = True
+413: Uninitialized Locals Compile Warning = "Aggressive"
+414: Require Return Values = True
+415: Enable C99 Extensions = True
+416: Enable OpenMP Extensions = False
+417: Stack Size = 250000
+418: Stack Reserve = 1048576
+419: Stack Commit = 4096
+420: Image Base Address = 4194304
+421: Image Base Address x64 = 4194304
+422: Compiler Defines = "/DWIN32_LEAN_AND_MEAN"
+423: Sign = False
+424: Sign Store = ""
+425: Sign Certificate = ""
+426: Sign Timestamp URL = ""
+427: Sign URL = ""
+428: Manifest Embed = False
+429: Icon File Is Rel = False
+430: Icon File = ""
+431: Application Title = ""
+432: Use IVI Subdirectories for Import Libraries = False
+433: Use VXIPNP Subdirectories for Import Libraries = False
+434: Use Dflt Import Lib Base Name = True
+435: Where to Copy DLL = "Do not copy"
+436: Custom Directory to Copy DLL Is Rel = False
+437: Custom Directory to Copy DLL = ""
+438: Generate Source Documentation = "None"
+439: Runtime Support = "Full Runtime Support"
+440: Runtime Binding = "Shared"
+441: Embed Project .UIRs = False
+442: Generate Map File = False
+443: Embed Timestamp = True
+444: Create Console Application = False
+445: Using LoadExternalModule = False
+446: DLL Exports = "Include File Symbols"
+447: Register ActiveX Server = False
+448: Add Type Lib To DLL = False
+449: Include Type Lib Help Links = False
+450: TLB Help Style = "HLP"
+451: Type Lib FP File Is Rel = False
+452: Type Lib FP File = ""
+453: Add NI Type Info To DLL = False
+454: Use Single Header for NI Type Info = False
+455: Single Header NI Type Info File Is Rel = False
+456: Single Header NI Type Info File = ""
+457: 
+458: [Compiler Options]
+459: Default Calling Convention = "cdecl"
+460: Require Prototypes = True
+461: Require Return Values = True
+462: Enable Pointer Mismatch Warning = True
+463: Enable Unreachable Code Warning = True
+464: Enable Unreferenced Identifiers Warning = True
+465: Enable Assignment In Conditional Warning = True
+466: Enable C99 Extensions = True
+467: Uninitialized Locals Compile Warning = "Aggressive"
+468: Precompile Prefix Header = False
+469: Prefix Header File = ""
+470: 
+471: [Run Options]
+472: Stack Size = 250000
+473: Stack Commit = 4096
+474: Image Base Address = 4194304
+475: Image Base Address x64 = 4194304
+476: 
+477: [Compiler Defines]
+478: Compiler Defines = "/DWIN32_LEAN_AND_MEAN"
+479: 
+480: [Include Paths]
+481: Include Path 1 Is Rel = True
+482: Include Path 1 Rel To = "Project"
+483: Include Path 1 Rel Path = ""
+484: Include Path 1 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded"
+485: 
+486: [Create Executable]
+487: Executable File_Debug Is Rel = True
+488: Executable File_Debug Rel To = "Project"
+489: Executable File_Debug Rel Path = "../Full_Device_UI/Full_Device_UI.exe"
+490: Executable File_Debug Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Device_UI/Full_Device_UI."
+491: Executable File_Debug Line0002 = "exe"
+492: Executable File_Release Is Rel = True
+493: Executable File_Release Rel To = "Project"
+494: Executable File_Release Rel Path = "../Full_Device_UI/Full_Device_UI.exe"
+495: Executable File_Release Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Device_UI/Full_Device_UI."
+496: Executable File_Release Line0002 = "exe"
+497: Executable File_Debug64 Is Rel = True
+498: Executable File_Debug64 Rel To = "Project"
+499: Executable File_Debug64 Rel Path = "../Full_Device_UI/Full_Device_UI.exe"
+500: Executable File_Debug64 Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Device_UI/Full_Device_UI."
+501: Executable File_Debug64 Line0002 = "exe"
+502: Executable File_Release64 Is Rel = True
+503: Executable File_Release64 Rel To = "Project"
+504: Executable File_Release64 Rel Path = "../Full_Device_UI/Full_Device_UI.exe"
+505: Executable File_Release64 Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Device_UI/Full_Device_UI."
+506: Executable File_Release64 Line0002 = "exe"
+507: Icon File Is Rel = False
+508: Icon File = ""
+509: Application Title = ""
+510: Numeric File Version = "1,0,0,0"
+511: Numeric Prod Version = "1,0,0,0"
+512: Comments = ""
+513: Comments Ex = ""
+514: Company Name = "University of St Andrews"
+515: Company Name Ex = "%company"
+516: File Description = "Full_Device_UI (Release x86)"
+517: File Description Ex = "%application (%rel_dbg %arch)"
+518: File Version = "1.0"
+519: File Version Ex = "%f1.%f2"
+520: Internal Name = "Full_Device_UI"
+521: Internal Name Ex = "%basename"
+522: Legal Copyright = "Copyright  University of St Andrews 2026"
+523: Legal Copyright Ex = "Copyright  %company %Y"
+524: Legal Trademarks = ""
+525: Legal Trademarks Ex = ""
+526: Original Filename = "Full_Device_UI.exe"
+527: Original Filename Ex = "%filename"
+528: Private Build = ""
+529: Private Build Ex = ""
+530: Product Name = "University of St Andrews Full_Device_UI"
+531: Product Name Ex = "%company %application"
+532: Product Version = "1.0"
+533: Product Version Ex = "%p1.%p2"
+534: Special Build = ""
+535: Special Build Ex = ""
+536: DLL Exports = "Include File Symbols"
+537: Use IVI Subdirectories for Import Libraries = False
+538: Use VXIPNP Subdirectories for Import Libraries = False
+539: Use Dflt Import Lib Base Name = True
+540: Where to Copy DLL = "Do not copy"
+541: Custom Directory to Copy DLL Is Rel = False
+542: Custom Directory to Copy DLL = ""
+543: Generate Source Documentation = "None"
+544: Add Type Lib To DLL = False
+545: Include Type Lib Help Links = False
+546: TLB Help Style = "HLP"
+547: Type Lib FP File Is Rel = False
+548: Type Lib FP File = ""
+549: Type Lib Guid = ""
+550: Runtime Support = "Full Runtime Support"
+551: Instrument Driver Support Only = False
+552: Embed Project .UIRs = False
+553: Generate Map File = False
+554: 
+555: [External Compiler Support]
+556: UIR Callbacks File Option = 0
+557: Using LoadExternalModule = False
+558: Create Project Symbols File = True
+559: UIR Callbacks Obj File Is Rel = False
+560: UIR Callbacks Obj File = ""
+561: Project Symbols H File Is Rel = False
+562: Project Symbols H File = ""
+563: Project Symbols Obj File Is Rel = False
+564: Project Symbols Obj File = ""
+565: 
+566: [ActiveX Server Options]
+567: Specification File Is Rel = False
+568: Specification File = ""
+569: Source File Is Rel = False
+570: Source File = ""
+571: Include File Is Rel = False
+572: Include File = ""
+573: IDL File Is Rel = False
+574: IDL File = ""
+575: Register ActiveX Server = False
+576: 
+577: [Signing Info]
+578: Sign = False
+579: Sign Debug Build = False
+580: Store = ""
+581: Certificate = ""
+582: Timestamp URL = ""
+583: URL = ""
+584: 
+585: [Manifest Info]
+586: Embed = False
+587: 
+588: [tpcSection]
+589: tpcEnabled = 0
+590: tpcOverrideEnvironment = 0
+591: tpcEnabled x64 = 0
+592: tpcOverrideEnvironment x64 = 0
+</file>
+
+<file path="DeviceControl_FullThreaded.h">
+  1: #include <userint.h>
+  2: #ifdef __cplusplus
+  3:     extern "C" {
+  4: #endif
+  5: #define  MAIN_PANEL                       1
+  6: #define  MAIN_PANEL_MAIN_PANEL_TAB        2
+  7: #define  PSU_TAB_PSU_RING_RESOURCE        2
+  8: #define  PSU_TAB_PSU_BTN_CONNECT          3
+  9: #define  PSU_TAB_PSU_BTN_DISCONNECT       4
+ 10: #define  PSU_TAB_PSU_BTN_REFRESH          5
+ 11: #define  PSU_TAB_PSU_MSG_STATUS           6
+ 12: #define  PSU_TAB_PSU_MSG_IDN              7
+ 13: #define  PSU_TAB_PSU_NUM_CH2_CURR_SET     8
+ 14: #define  PSU_TAB_PSU_NUM_CH2_VOLT_SET     9
+ 15: #define  PSU_TAB_PSU_BTN_CH2_APPLY        10
+ 16: #define  PSU_TAB_PSU_BTN_CH3_OUTPUT       11
+ 17: #define  PSU_TAB_PSU_LED_CH3_OUTPUT       12
+ 18: #define  PSU_TAB_PSU_BTN_CH2_OUTPUT       13
+ 19: #define  PSU_TAB_PSU_LED_CH2_OUTPUT       14
+ 20: #define  PSU_TAB_PSU_NUM_CH2_PWR_READ     15
+ 21: #define  PSU_TAB_PSU_NUM_CH2_CURR_READ    16
+ 22: #define  PSU_TAB_PSU_NUM_CH2_VOLT_READ    17
+ 23: #define  PSU_TAB_PSU_NUM_CH1_CURR_SET     18
+ 24: #define  PSU_TAB_PSU_NUM_CH1_VOLT_SET     19
+ 25: #define  PSU_TAB_PSU_BTN_CH1_APPLY        20
+ 26: #define  PSU_TAB_PSU_BTN_CH1_OUTPUT       21
+ 27: #define  PSU_TAB_PSU_LED_CH1_OUTPUT       22
+ 28: #define  PSU_TAB_PSU_NUM_CH1_PWR_READ     23
+ 29: #define  PSU_TAB_PSU_NUM_CH1_CURR_READ    24
+ 30: #define  PSU_TAB_PSU_NUM_CH1_VOLT_READ    25
+ 31: #define  PSU_TAB_PSU_LBL_CH1_HEADER       26
+ 32: #define  PSU_TAB_PSU_LBL_CH2_HEADER_2     27
+ 33: #define  PSU_TAB_PSU_LBL_CH3_HEADER       28
+ 34: #define  PSU_TAB_PSU_TIMER_READBACK       29
+ 35: #define  PSU_TAB_PSU_BTN_ALL_OUTPUT       30
+ 36: #define  RELAY_TAB_RELAY_RING_RESOURCE    2
+ 37: #define  RELAY_TAB_RELAY_BTN_CONNECT      3
+ 38: #define  RELAY_TAB_RELAY_BTN_DISCONNECT   4
+ 39: #define  RELAY_TAB_RELAY_BTN_REFRESH      5
+ 40: #define  RELAY_TAB_RELAY_BTN_RLY1         6
+ 41: #define  RELAY_TAB_RELAY_LED_RLY2         7
+ 42: #define  RELAY_TAB_RELAY_LED_RLY1         8
+ 43: #define  RELAY_TAB_RELAY_BTN_RLY2         9
+ 44: #define  RELAY_TAB_RELAY_MSG_STATUS       10
+ 45: #define  TABPANEL_DDS_STR_COM_PORT        2
+ 46: #define  TABPANEL_DDS_NUM_CLOCK_MHZ       3
+ 47: #define  TABPANEL_DDS_BTN_INIT_CAL        4
+ 48: #define  TABPANEL_DDS_BTN_DISCONNECT      5
+ 49: #define  TABPANEL_DDS_BTN_STOP            6
+ 50: #define  TABPANEL_DDS_BTN_START           7
+ 51: #define  TABPANEL_DDS_NUM_SAMPS_PER_CHI   8
+ 52: #define  TABPANEL_DDS_NUM_PROG_DIV        9
+ 53: #define  TABPANEL_DDS_NUM_HMC_DIV         10
+ 54: #define  TABPANEL_DDS_BTN_CONNECT         11
+ 55: #define  TABPANEL_DDS_NUM_PERIOD          12
+ 56: #define  TABPANEL_DDS_NUM_STOP_FREQ       13
+ 57: #define  TABPANEL_DDS_NUM_CW_FREQ         14
+ 58: #define  TABPANEL_DDS_NUM_START_FREQ      15
+ 59: #define  TABPANEL_DDS_NUM_ACT_PERIOD      16
+ 60: #define  TABPANEL_DDS_NUM_ACT_STOP        17
+ 61: #define  TABPANEL_DDS_NUM_MIN_PROG_DIV    18
+ 62: #define  TABPANEL_DDS_NUM_DEAD_SAMPLES    19
+ 63: #define  TABPANEL_DDS_NUM_DEAD_TIME       20
+ 64: #define  TABPANEL_DDS_NUM_DRCTRL_PERIOD   21
+ 65: #define  TABPANEL_DDS_NUM_TRIG_FREQ       22
+ 66: #define  TABPANEL_DDS_NUM_ADC_CLK         23
+ 67: #define  TABPANEL_DDS_NUM_CALC_PERIOD     24
+ 68: #define  TABPANEL_DDS_NUM_CHIRP_STEPS     25
+ 69: #define  TABPANEL_DDS_NUM_SYNC_CLK        26
+ 70: #define  TABPANEL_DDS_NUM_ACT_START       27
+ 71: #define  TABPANEL_DDS_RING_CHIRP_MODE     28
+ 72: #define  TABPANEL_DDS_MSG_STATUS          29
+ 73: #define  TABPANEL_DDS_TIMING_TEXT         30
+ 74: #define  TABPANEL_DDS_MSG_TIMING_WARN     31
+ 75: #define  TABPANEL_2_ADC_NUM_CARD_NUM      2
+ 76: #define  TABPANEL_2_ADC_RING_TRIG_POL     3
+ 77: #define  TABPANEL_2_ADC_RING_TRIG_SRC     4
+ 78: #define  TABPANEL_2_ADC_RING_TIMEBASE     5
+ 79: #define  TABPANEL_2_ADC_RING_IMPEDANCE    6
+ 80: #define  TABPANEL_2_ADC_RING_RANGE        7
+ 81: #define  TABPANEL_2_ADC_NUM_TRIGGERS      8
+ 82: #define  TABPANEL_2_ADC_NUM_SAMP_PER_TRIG 9
+ 83: #define  TABPANEL_2_ADC_BTN_RELEASE       10
+ 84: #define  TABPANEL_2_ADC_BTN_STOP_ACQ      11
+ 85: #define  TABPANEL_2_ADC_BTN_SINGLE        12
+ 86: #define  TABPANEL_2_ADC_BTN_START_ACQ     13
+ 87: #define  TABPANEL_2_ADC_BTN_SAVE          14
+ 88: #define  TABPANEL_2_ADC_BTN_CONFIGURE     15
+ 89: #define  TABPANEL_2_ADC_BTN_REGISTER      16
+ 90: #define  TABPANEL_2_ADC_GRAPH_TIME        17
+ 91: #define  TABPANEL_2_ADC_GRAPH_FFT         18
+ 92: #define  TABPANEL_2_ADC_MSG_STATUS        19
+ 93: #define  TABPANEL_2_ADC_BTN_RECORD        20
+ 94: #define  TABPANEL_2_ADC_TIMER_POLL        21
+ 95: #define  TABPANEL_2_STRICTDIAGNOSTIC      22
+ 96: int  CVICALLBACK AdcConfigureCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+ 97: int  CVICALLBACK AdcPollTimerCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+ 98: int  CVICALLBACK AdcRecordCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+ 99: int  CVICALLBACK AdcRegisterCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+100: int  CVICALLBACK AdcReleaseCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+101: int  CVICALLBACK AdcSaveCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+102: int  CVICALLBACK AdcSingleShotCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+103: int  CVICALLBACK AdcStartCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+104: int  CVICALLBACK AdcStopCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+105: int  CVICALLBACK AdcStrictDiagnosticCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+106: int  CVICALLBACK CH1ApplyCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+107: int  CVICALLBACK CH1OutCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+108: int  CVICALLBACK CH2ApplyCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+109: int  CVICALLBACK CH2OutCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+110: int  CVICALLBACK CH3OutCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+111: int  CVICALLBACK DdsConnectCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+112: int  CVICALLBACK DdsDisconnectCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+113: int  CVICALLBACK DdsDivRatioCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+114: int  CVICALLBACK DdsInitCalCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+115: int  CVICALLBACK DdsStartCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+116: int  CVICALLBACK DdsStopCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+117: int  CVICALLBACK MainPanelCB(int panel, int event, void *callbackData, int eventData1, int eventData2);
+118: int  CVICALLBACK PsuAllOutCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+119: int  CVICALLBACK PsuConnectCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+120: int  CVICALLBACK PsuDisconnect(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+121: int  CVICALLBACK ReadbackTimerCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+122: int  CVICALLBACK RefreshResCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+123: int  CVICALLBACK Rl1CB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+124: int  CVICALLBACK Rl2CB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+125: int  CVICALLBACK RlConnectCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+126: int  CVICALLBACK RlDisconnect(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+127: #ifdef __cplusplus
+128:     }
+129: #endif
+</file>
+
+<file path="EXAMPLE_DBCODE_PostExtTrg.c">
+ 1: #include <windows.h>
+ 2: #include <stdio.h>
+ 3: #include <conio.h>
+ 4: #include "wd-dask.h"
+ 5: #include "wddaskex.h"
+ 6: #define CHANNELNUMBER 0
+ 7: #define SCANCOUNT     4000
+ 8: #define TIMEBASE      WD_IntTimeBase
+ 9: #define BUFAUTORESET   1
+10: #define ADCONVERTSRC  WD_AI_ADCONVSRC_TimePacer
+11: #define ADTRIGSRC     WD_AI_TRGSRC_ExtD
+12: #define ADTRIGMODE    WD_AI_TRGMOD_POST
+13: #define ADTRIGPOL     WD_AI_TrgNegative
+14: #define SCAN_INTERVAL  6000
+15: short ai_buf[SCANCOUNT];
+16: short ai_buf2[SCANCOUNT];
+17: FILE *svfile;
+18: I16 card;
+19: U16 ai_range=0;
+20: DAS_IOT_DEV_PROP cardProp;
+21: void write_to_file( U16 *buf, U32 write_count )
+22: {
+23:   U32 i;
+24:   F64 vol = 0.0;
+25:   for(i=0; i<write_count; i++) {
+26: 	WD_AI_VoltScale (card, ai_range, buf[i], &vol);
+27:     fprintf( svfile, "0x%04x(%4.2fV)\n", (U16) (buf[i] & cardProp.mask), vol);
+28:   }
+29: }
+30: main()
+31: {
+32:     I16 err, card_num,i,Id, tmpId = 0;
+33:     BOOLEAN halfReady, fStop, fok=0;
+34:     U32 count=0, count1, startPos;
+35: 	U16 card_type = 1;
+36:     printf("This program inputs %d scans from CH-0.\n", SCANCOUNT);
+37: 	card_type = WD_ChooseDeviceType(0);
+38: 	printf("Please input a card number: ");
+39:     scanf(" %hd", &card_num);
+40: 	printf("Save data to a file (DmaData.dat): Yes(1) or No(0)? ");
+41: 	scanf(" %d", &fok);
+42:     if ((card=WD_Register_Card (card_type, card_num)) <0 ) {
+43:         printf("Register_Card error=%d", card);
+44:         exit(1);
+45:     }
+46: 	WD_GetDeviceProperties (card, 0, &cardProp);
+47: 	ai_range = cardProp.default_range;
+48: 	err = WD_AI_CH_Config (card, CHANNELNUMBER, ai_range);
+49:     if (err!=NoError) {
+50:        printf("WD_AI_CH_Config error=%d", err);
+51:        exit(1);
+52:     }
+53: 	err = WD_AI_Config (card, TIMEBASE, 1, WD_AI_ADCONVSRC_TimePacer, 0, BUFAUTORESET);
+54:     if (err!=0) {
+55:        printf("WD_AI_Config error=%d", err);
+56:        exit(1);
+57:     }
+58:     err = WD_AI_Trig_Config (card, ADTRIGMODE, ADTRIGSRC, ADTRIGPOL, 0, 0.0, 0, 0, 0, 1);
+59:     if (err!=0) {
+60:        printf("WD_AI_Trig_Config error=%d", err);
+61:        exit(1);
+62:     }
+63:     err=WD_AI_AsyncDblBufferMode (card, 1);
+64:     if (err!=NoError) {
+65:        printf("WD_AI_AsyncDblBufferMode error=%d", err);
+66:        exit(1);
+67:     }
+68: 	if(fok) {
+69: 		svfile = fopen("DmaData.dat", "w");
+70: 		fprintf( svfile, "CH%d :\n", CHANNELNUMBER);
+71: 	}
+72: 	err=WD_AI_ContBufferSetup (card, ai_buf, SCANCOUNT, &Id);
+73: 	err=WD_AI_ContBufferSetup (card, ai_buf2, SCANCOUNT, &Id);
+74:     err = WD_AI_ContReadChannel (card, CHANNELNUMBER, Id, SCANCOUNT, SCAN_INTERVAL, SCAN_INTERVAL, ASYNCH_OP);
+75:     if (err!=0) {
+76:        printf("WD_AI_ContReadChannel error=%d", err);
+77:        exit(1);
+78:     }
+79:     printf("\n\n\nStart Data Conversion by External Trigger Signal\nAnd Press any key to stop Opeartion.\n");
+80:     printf("\n\nData count : \n");
+81:     do {
+82:         do {
+83:              WD_AI_AsyncDblBufferHalfReady(card, &halfReady, &fStop);
+84: 		} while (!halfReady && !fStop);
+85: 	    count += (SCANCOUNT);
+86:         printf("%d\r", count);
+87: 		if(fok)
+88:            write_to_file( tmpId?ai_buf2:ai_buf, SCANCOUNT );
+89: 		tmpId = (tmpId + 1) % 2;
+90:     } while(!kbhit());
+91:     WD_AI_AsyncClear(card, &startPos, &count1);
+92: 	if(fok) {
+93: 	 write_to_file( tmpId?ai_buf2:ai_buf, count1 );
+94:      fclose(svfile);
+95: 	}
+96: 	printf("\n\nTotal %d input data.\n", count+count1);
+97:     WD_Release_Card(card);
+98:     printf("\nPress ENTER to exit the program. "); getch();
+99: }
+</file>
+
+<file path="GEMINI.md">
+1: # Gemini Role: Senior CVI/Instrumentation Engineer
+2: - **Environment:** LabWindows/CVI 2020 (ANSI C, Clang-based).
+3: - **Goal:** Perform deep architectural reviews and multi-file dependency analysis for the CerberusControl project.
+4: - **Constraints:** - Strictly adhere to C90/C99 standards (no C++).
+5:   - Prioritize thread safety in data acquisition loops.
+6:   - Do not modify binary .uir files directly; describe the required changes for the UI Editor.
+7: - **Verification:** Cross-reference function signatures in .h files with their implementations in .c files.
+</file>
+
+<file path="README.md">
+1: # CerberusControl
+2: Development of Cerberus Radar Control Software
+</file>
+
+<file path="Wd-dask.h">
+  1: #ifndef		_WD_DASK_H
+  2: #define		_WD_DASK_H
+  3: #ifdef __cplusplus
+  4: extern "C" {
+  5: #endif
+  6: typedef unsigned char   U8;
+  7: typedef short           I16;
+  8: typedef unsigned short  U16;
+  9: typedef long            I32;
+ 10: typedef unsigned long   U32;
+ 11: typedef float           F32;
+ 12: typedef double          F64;
+ 13: #define PCI_9820        0x1
+ 14: #define PXI_9816D       0x2
+ 15: #define PXI_9826D       0x3
+ 16: #define PXI_9846D       0x4
+ 17: #define PXI_9846DW      0x4
+ 18: #define PXI_9816H       0x5
+ 19: #define PXI_9826H       0x6
+ 20: #define PXI_9846H       0x7
+ 21: #define PXI_9846HW      0x7
+ 22: #define PXI_9816V       0x8
+ 23: #define PXI_9826V       0x9
+ 24: #define PXI_9846V       0xa
+ 25: #define PXI_9846VW      0xa
+ 26: #define PXI_9846VID     0xb
+ 27: #define PCI_9816D       0x12
+ 28: #define PCI_9826D       0x13
+ 29: #define PCI_9846D       0x14
+ 30: #define PCI_9846DW      0x14
+ 31: #define PCI_9816H       0x15
+ 32: #define PCI_9826H       0x16
+ 33: #define PCI_9846H       0x17
+ 34: #define PCI_9846HW      0x17
+ 35: #define PCI_9816V       0x18
+ 36: #define PCI_9826V       0x19
+ 37: #define PCI_9846V       0x1a
+ 38: #define PCI_9846VW      0x1a
+ 39: #define PCIe_9816D      0x22
+ 40: #define PCIe_9826D      0x23
+ 41: #define PCIe_9846D      0x24
+ 42: #define PCIe_9846DW     0x24
+ 43: #define PCIe_9816H      0x25
+ 44: #define PCIe_9826H      0x26
+ 45: #define PCIe_9846H      0x27
+ 46: #define PCIe_9846HW     0x27
+ 47: #define PCIe_9816V      0x28
+ 48: #define PCIe_9826V      0x29
+ 49: #define PCIe_9846V      0x2a
+ 50: #define PCIe_9846VW     0x2a
+ 51: #define PCIe_9842       0x30
+ 52: #define PXIe_9848       0x32
+ 53: #define PCIe_9852       0x33
+ 54: #define PXIe_9852       0x34
+ 55: #define PCIe_9814       0x35
+ 56: #define PCI_9816        PXI_9816D
+ 57: #define PCI_9826        PXI_9826D
+ 58: #define PCI_9846        PXI_9846D
+ 59: #define MAX_CARD        32
+ 60: #define NoError                       0
+ 61: #define ErrorUnknownCardType         -1
+ 62: #define ErrorInvalidCardNumber       -2
+ 63: #define ErrorTooManyCardRegistered   -3
+ 64: #define ErrorCardNotRegistered       -4
+ 65: #define ErrorFuncNotSupport          -5
+ 66: #define ErrorInvalidIoChannel        -6
+ 67: #define ErrorInvalidAdRange          -7
+ 68: #define ErrorContIoNotAllowed        -8
+ 69: #define ErrorDiffRangeNotSupport     -9
+ 70: #define ErrorLastChannelNotZero      -10
+ 71: #define ErrorChannelNotDescending    -11
+ 72: #define ErrorChannelNotAscending     -12
+ 73: #define ErrorOpenDriverFailed        -13
+ 74: #define ErrorOpenEventFailed         -14
+ 75: #define ErrorTransferCountTooLarge   -15
+ 76: #define ErrorNotDoubleBufferMode     -16
+ 77: #define ErrorInvalidSampleRate       -17
+ 78: #define ErrorInvalidCounterMode      -18
+ 79: #define ErrorInvalidCounter          -19
+ 80: #define ErrorInvalidCounterState     -20
+ 81: #define ErrorInvalidBinBcdParam      -21
+ 82: #define ErrorBadCardType             -22
+ 83: #define ErrorInvalidDaRefVoltage     -23
+ 84: #define ErrorAdTimeOut               -24
+ 85: #define ErrorNoAsyncAI               -25
+ 86: #define ErrorNoAsyncAO               -26
+ 87: #define ErrorNoAsyncDI               -27
+ 88: #define ErrorNoAsyncDO               -28
+ 89: #define ErrorNotInputPort            -29
+ 90: #define ErrorNotOutputPort           -30
+ 91: #define ErrorInvalidDioPort          -31
+ 92: #define ErrorInvalidDioLine          -32
+ 93: #define ErrorContIoActive            -33
+ 94: #define ErrorDblBufModeNotAllowed    -34
+ 95: #define ErrorConfigFailed            -35
+ 96: #define ErrorInvalidPortDirection    -36
+ 97: #define ErrorBeginThreadError        -37
+ 98: #define ErrorInvalidPortWidth        -38
+ 99: #define ErrorInvalidCtrSource        -39
+100: #define ErrorOpenFile                -40
+101: #define ErrorAllocateMemory          -41
+102: #define ErrorDaVoltageOutOfRange     -42
+103: #define ErrorDaExtRefNotAllowed      -43
+104: #define ErrorInvalidBufferID         -44
+105: #define ErrorInvalidCNTInterval	     -45
+106: #define ErrorReTrigModeNotAllowed    -46
+107: #define ErrorResetBufferNotAllowed   -47
+108: #define ErrorAnaTriggerLevel         -48
+109: #define ErrorDAQEvent		     				 -49
+110: #define ErrorInvalidDataSize         -50
+111: #define ErrorOffsetCalibration       -51
+112: #define ErrorGainCalibration         -52
+113: #define ErrorCountOutofSDRAMSize     -53
+114: #define ErrorNotStartTriggerModule   -54
+115: #define ErrorInvalidRouteLine        -55
+116: #define ErrorInvalidSignalCode       -56
+117: #define ErrorInvalidSignalDirection  -57
+118: #define ErrorTRGOSCalibration        -58
+119: #define ErrorNoSDRAM                 -59
+120: #define ErrorIntegrationGain         -60
+121: #define ErrorAcquisitionTiming       -61
+122: #define ErrorIntegrationTiming       -62
+123: #define ErrorInvalidTraceCnt         -63
+124: #define ErrorTriggerSource           -64
+125: #define ErrorInvalidTimeBase         -70
+126: #define ErrorUndefinedParameter	     -71
+127: #define ErrorNotDAQSteppedMode       -80
+128: #define ErrorBufAddrNotQuadDWordAlignment   -90
+129: #define ErrorDeviceIsRunning	 -106
+130: #define ErrorCalAddress		     -110
+131: #define ErrorInvalidCalBank	   -111
+132: #define ErrorPLLNotLocked		 	 -126
+133: #define ErrorCLKNotPresent		 -127
+134: #define ErrorConfigIoctl	     -201
+135: #define ErrorAsyncSetIoctl	   -202
+136: #define ErrorDBSetIoctl		     -203
+137: #define ErrorDBHalfReadyIoctl	 -204
+138: #define ErrorContOPIoctl	     -205
+139: #define ErrorContStatusIoctl	 -206
+140: #define ErrorPIOIoctl		       -207
+141: #define ErrorDIntSetIoctl	     -208
+142: #define ErrorWaitEvtIoctl	     -209
+143: #define ErrorOpenEvtIoctl	     -210
+144: #define ErrorCOSIntSetIoctl	   -211
+145: #define ErrorMemMapIoctl	     -212
+146: #define ErrorMemUMapSetIoctl	 -213
+147: #define ErrorCTRIoctl		       -214
+148: #define ErrorGetResIoctl	     -215
+149: #define TRUE    1
+150: #define FALSE   0
+151: #define SYNCH_OP        1
+152: #define ASYNCH_OP       2
+153: #define AD_B_10_V       1
+154: #define AD_B_5_V        2
+155: #define AD_B_2_5_V      3
+156: #define AD_B_1_25_V     4
+157: #define AD_B_0_625_V    5
+158: #define AD_B_0_3125_V   6
+159: #define AD_B_0_5_V      7
+160: #define AD_B_0_05_V     8
+161: #define AD_B_0_005_V    9
+162: #define AD_B_1_V       10
+163: #define AD_B_0_1_V     11
+164: #define AD_B_0_01_V    12
+165: #define AD_B_0_001_V   13
+166: #define AD_U_20_V      14
+167: #define AD_U_10_V      15
+168: #define AD_U_5_V       16
+169: #define AD_U_2_5_V     17
+170: #define AD_U_1_25_V    18
+171: #define AD_U_1_V       19
+172: #define AD_U_0_1_V     20
+173: #define AD_U_0_01_V    21
+174: #define AD_U_0_001_V   22
+175: #define AD_B_2_V       23
+176: #define AD_B_0_25_V    24
+177: #define AD_B_0_2_V     25
+178: #define AD_U_4_V       26
+179: #define AD_U_2_V       27
+180: #define AD_U_0_5_V     28
+181: #define AD_U_0_4_V     29
+182: #define AD_B_1_5_V     30
+183: #define AD_B_0_2145_V  31
+184: #define All_Channels   -1
+185: #define WD_AI_ADCONVSRC_TimePacer 0
+186: #define WD_AI_TRGSRC_SOFT      0x00
+187: #define WD_AI_TRGSRC_ANA       0x01
+188: #define WD_AI_TRGSRC_ExtD      0x02
+189: #define WD_AI_TRSRC_SSI_1      0x03
+190: #define WD_AI_TRSRC_SSI_2      0x04
+191: #define WD_AI_TRSRC_PXIStar    0x05
+192: #define WD_AI_TRSRC_PXIeStar   0x06
+193: #define WD_AI_TRGMOD_POST      0x00
+194: #define WD_AI_TRGMOD_PRE       0x01
+195: #define WD_AI_TRGMOD_MIDL      0x02
+196: #define WD_AI_TRGMOD_DELAY     0x03
+197: #define WD_AI_TrgPositive      0x1
+198: #define WD_AI_TrgNegative      0x0
+199: #define WD_AI_TRSRC_PXIStart   0x05
+200: #define WD_AIEvent_Manual      0x80
+201: #define CH0ATRIG	   0x00
+202: #define CH1ATRIG	   0x01
+203: #define CH2ATRIG	   0x02
+204: #define CH3ATRIG	   0x03
+205: #define CH4ATRIG	   0x04
+206: #define CH5ATRIG	   0x05
+207: #define CH6ATRIG	   0x06
+208: #define CH7ATRIG	   0x07
+209: #define WD_ExtTimeBase		  0x0
+210: #define WD_SSITimeBase		  0x1
+211: #define	WD_StarTimeBase		  0x2
+212: #define WD_IntTimeBase		  0x3
+213: #define	WD_PXI_CLK10		  	0x4
+214: #define	WD_PLL_REF_PXICLK10	  0x4
+215: #define	WD_PLL_REF_EXT10	  0x5
+216: #define	WD_PLL_REF_EXT		  WD_PLL_REF_EXT10
+217: #define	WD_PXIe_CLK100		  0x6
+218: #define WD_PLL_REF_PXIeCLK100	  0x6
+219: #define	WD_DBoard_TimeBase	  0x7
+220: #define SSI_TIME        15
+221: #define SSI_TRIG_SRC1   7
+222: #define SSI_TRIG_SRC2   5
+223: #define SSI_TRIG_SRC2_S 5
+224: #define SSI_TRIG_SRC2_T 6
+225: #define SSI_PRE_DATA_RDY 0x10
+226: #define PXI_TRIG_0      0
+227: #define PXI_TRIG_1      1
+228: #define PXI_TRIG_2      2
+229: #define PXI_TRIG_3      3
+230: #define PXI_TRIG_4      4
+231: #define PXI_TRIG_5      5
+232: #define PXI_TRIG_6      6
+233: #define PXI_TRIG_7      7
+234: #define PXI_STAR_TRIG   8
+235: #define TRG_IO		9
+236: #define SSI_LINE_0      0
+237: #define SSI_LINE_1      1
+238: #define SSI_LINE_2      2
+239: #define SSI_LINE_3      3
+240: #define SSI_LINE_4      4
+241: #define SSI_LINE_5      5
+242: #define SSI_LINE_6      6
+243: #define SSI_LINE_7      7
+244: #define PXI_START_TRIG  8
+245: #define SOFTTRIG_AI	 0x1
+246: #define SOFTTRIG_AI_OUT	 0x2
+247: #define DAQEnd   0
+248: #define DBEvent  1
+249: #define TrigEvent  2
+250: #define DAQSTEPPED    0x1
+251: #define RestartEn     0x2
+252: #define DualBufEn     0x4
+253: #define ManualSoftTrg 0x40
+254: #define DMASTEPPED    0x80
+255: #define AI_AVE		 		0x8
+256: #define AI_AVE_32		 	0x10
+257: #define AI_RANGE	0
+258: #define AI_IMPEDANCE	1
+259: #define ADC_DITHER	2
+260: #define AI_COUPLING	3
+261: #define ADC_Bandwidth	4
+262: #define SIGNAL_FIR		5
+263: #define IMPEDANCE_50Ohm 0
+264: #define IMPEDANCE_HI	1
+265: #define ADC_DITHER_DIS	0
+266: #define ADC_DITHER_EN	1
+267: #define DC_Coupling	0
+268: #define AC_Coupling	1
+269: #define BANDWIDTH_DEVICE_DEFAULT 	0
+270: #define BANDWIDTH_20M	20
+271: #define BANDWIDTH_100M	100
+272: #define FIR_DIS				0
+273: #define FIR_EN_20M		1
+274: #define FIR_EN_10M		2
+275: #define AITRIGOUT_CH0	0
+276: #define AITRIGOUT_PXI	2
+277: #define AITRIGOUT_PXI_TRIG_0	2
+278: #define AITRIGOUT_PXI_TRIG_1	3
+279: #define AITRIGOUT_PXI_TRIG_2	4
+280: #define AITRIGOUT_PXI_TRIG_3	5
+281: #define AITRIGOUT_PXI_TRIG_4	6
+282: #define AITRIGOUT_PXI_TRIG_5	7
+283: #define AITRIGOUT_PXI_TRIG_6	8
+284: #define AITRIGOUT_PXI_TRIG_7	9
+285: #define INPUT_PORT      1
+286: #define OUTPUT_PORT     2
+287: #define INPUT_LINE      1
+288: #define OUTPUT_LINE     2
+289: #define SDI_En      0
+290: #define SDI_Dis     1
+291: #define CalLoad		0
+292: #define AutoCal		1
+293: #define CalCopy		2
+294: #define VAL_MAX		0
+295: #define VAL_MIN		1
+296: #define WD_OutTrgPWidth_50ns   0x0
+297: #define WD_OutTrgPWidth_100ns  0x1
+298: #define WD_OutTrgPWidth_150ns  0x2
+299: #define WD_OutTrgPWidth_200ns  0x3
+300: #define WD_OutTrgPWidth_500ns  0x4
+301: #define WD_OutTrgPWidth_1us    0x5
+302: #define WD_OutTrgPWidth_2us    0x6
+303: #define WD_OutTrgPWidth_5us    0x7
+304: #define WD_OutTrgPWidth_10us   0x8
+305: #define WD_OutTrgSrcAuto   0x0
+306: #define WD_OutTrgSrcManual 0x1
+307: #define WD_OutTrg_Rising   0x0
+308: #define WD_OutTrg_Fall     0x10
+309: typedef struct
+310: {
+311: U16 wModuleType;
+312: U16 wCardID;
+313: U16 geo_addr;
+314: U16 Reserved;
+315: char dispname[64];
+316: } WD_DEVICE, *PWD_DEVICE;
+317: I16 __stdcall WD_Register_Card (U16 CardType, U16 card_num);
+318: I16 __stdcall WD_Register_Card_By_PXISlot_GA (U16 CardType, U16 ga);
+319: I16 __stdcall WD_Get_SDRAMSize  (U16 CardNumber, U32 *sdramsize);
+320: I16 __stdcall WD_SoftTriggerGen(U16 wCardNumber, U8 op);
+321: I16 __stdcall WD_Release_Card  (U16 CardNumber);
+322: I16 __stdcall WD_GetActualRate(U16 wCardNumber, BOOLEAN fdir, F64 Rate, U32* interval, F64 *ActualRate);
+323: I16 __stdcall WD_GetPXIGeographAddr (U16 wCardNumber, U8* geo_addr);
+324: I16 __stdcall WD_GetBaseAddr(U16 wCardNumber, U32 *BaseAddr, U32 *BaseAddr2);
+325: void * __stdcall WD_Buffer_Alloc (U16 wCardNumber, U32 dwSize);
+326: BOOL __stdcall WD_Buffer_Free (U16 wCardNumber, void *buf);
+327: I16 __stdcall WD_Device_Scan(WD_DEVICE* AvailModules, U16 ncount, U16* retcnt);
+328: I16 __stdcall WD_GetFPGAVersion(USHORT wCardNumber, U32* version);
+329: I16 __stdcall WD_GetSerialNumber(U16 wCardNumber, U8 *SerialString, U8 numberOfElements, U8* actualread);
+330: I16 __stdcall WD_AI_Config (U16 wCardNumber, U16 TimeBase, BOOLEAN adDutyRestore, U16 ConvSrc, BOOLEAN doubleEdged, BOOLEAN AutoResetBuf);
+331: I16 __stdcall WD_AI_Trig_Config (U16 wCardNumber, U16 trigMode, U16 trigSrc, U16 trigPol, U16 anaTrigchan, F64 anaTriglevel, U32 postTrigScans, U32 preTrigScans, U32 trigDelayTicks, U32 reTrgCnt);
+332: I16 __stdcall WD_OutTrig_Config (U16 wCardNumber, U16 trig_Ch, U16 trig_conf, U16 trig_width);
+333: I16 __stdcall WD_AI_Set_Mode (U16 wCardNumber, U16 modeCtrl, U16 wIter);
+334: I16 __stdcall WD_AI_CH_Config (U16 wCardNumber, U16 wChannel, U16 wAdRange);
+335: I16 __stdcall WD_AI_CH_ChangeParam (U16 wCardNumber, U16 wChannel, U16 wParam, U16 wValue);
+336: I16 __stdcall WD_AI_InitialMemoryAllocated (U16 CardNumber, U32 *MemSize);
+337: I16 __stdcall WD_AI_VoltScale (U16 CardNumber, U16 AdRange, I16 reading, F64 *voltage);
+338: I16 __stdcall WD_AI_VoltScale32 (U16 wCardNumber, U16 adRange, I32 reading, F64 *voltage);
+339: I16 __stdcall WD_AI_ContReadChannel (U16 CardNumber, U16 Channel,
+340:                U16 BufId, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+341: I16 __stdcall WD_AI_ContReadMultiChannels (U16 CardNumber, U16 NumChans, U16 *Chans,
+342:                U16 BufId, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+343: I16 __stdcall WD_AI_ContScanChannels (U16 CardNumber, U16 Channel,
+344:                U16 BufId, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+345: I16 __stdcall WD_AI_ContReadChannelToFile (U16 CardNumber, U16 Channel, U16 BufId,
+346:                U8 *FileName, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+347: I16 __stdcall WD_AI_ContReadMultiChannelsToFile (U16 CardNumber, U16 NumChans, U16 *Chans,
+348:                U16 BufId, U8 *FileName, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+349: I16 __stdcall WD_AI_ContScanChannelsToFile (U16 CardNumber, U16 Channel, U16 BufId,
+350:                U8 *FileName, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+351: I16 __stdcall WD_AI_ContStatus (U16 CardNumber, U32 *Status);
+352: I16 __stdcall WD_AI_ContVScale (U16 wCardNumber, U16 adRange, void *readingArray, F64 *voltageArray, I32 count);
+353: I16 __stdcall WD_AI_ContVScaleEx (U16 wCardNumber, U16 adRange, U16 width, void *readingArray, F64 *voltageArray, I32 count);
+354: I16 __stdcall WD_AI_Array_Scale (U16 wCardNumber, U16 numRanges, U16 *rangeList, U16 width, void *readingArray, F64 *voltageArray, I32 count);
+355: I16 __stdcall WD_AI_AsyncCheck (U16 CardNumber, BOOLEAN *Stopped, U32 *AccessCnt);
+356: I16 __stdcall WD_AI_AsyncClear (U16 CardNumber, U32 *StartPos, U32 *AccessCnt);
+357: I16 __stdcall WD_AI_AsyncClearEx (U16 CardNumber, U32 *StartPos, U32 *AccessCnt, U32 NoWait);
+358: I16 __stdcall WD_AI_AsyncDblBufferHalfReady (U16 CardNumber, BOOLEAN *HalfReady, BOOLEAN *StopFlag);
+359: I16 __stdcall WD_AI_AsyncDblBufferMode (U16 CardNumber, BOOLEAN Enable);
+360: I16 __stdcall WD_AI_AsyncDblBufferToFile (U16 CardNumber);
+361: I16 __stdcall WD_AI_ContBufferSetup (U16 wCardNumber, void *pwBuffer, U32 dwReadCount, U16 *BufferId);
+362: I16 __stdcall WD_AI_ContBufferSetup32 (U16 wCardNumber, void *pwBuffer, U32 dwReadCount, U16 *BufferId);
+363: I16 __stdcall WD_AI_ContBufferReset (U16 wCardNumber);
+364: I16 __stdcall WD_AI_DMA_Transfer (U16 wCardNumber, U16 BufId);
+365: I16 __stdcall WD_AI_ConvertCheck (U16 wCardNumber, BOOLEAN *bStopped);
+366: I16 __stdcall WD_AI_AsyncReStartNextReady (U16 wCardNumber, BOOLEAN *bReady, BOOLEAN *StopFlag, U16 *RdyDaqCnt);
+367: I16 __stdcall WD_AI_EventCallBack (U16 wCardNumber, I16 mode, I16 EventType, U32 callbackAddr);
+368: I16 __stdcall WD_AI_DMA_TransferBySize (U16 wCardNumber, F32 timeLimit,  U16 BufId, U32 dwReadCount, U32 *numRead, U32 *dataNotTransferred, U8 *complete);
+369: I16 __stdcall WD_AI_AsyncDblBufferToFileBySize (U16 wCardNumber, U16 bufid, U32 cnt);
+370: I16 __stdcall WD_AI_ContBufferLock (U16 wCardNumber, void *pwBuffer, U32 dwReadCount, U16 *BufferId);
+371: I16 __stdcall WD_AI_SetTimeout (U16 wCardNumber, U32 msec);
+372: I16 __stdcall WD_MeasureStats(U16 wCardNumber, U16 wNumChans, U16 *chans, U16 item, void* valBuf);
+373: I16 __stdcall WD_AI_AsyncDblBufferOverrun (U16 wCardNumber, U16 op, U16 *overrunFlag);
+374: I16 __stdcall WD_AI_AsyncDblBufferHandled (U16 wCardNumber);
+375: I16 __stdcall WD_AI_AsyncReTrigNextReady (U16 wCardNumber, BOOLEAN *bReady, BOOLEAN *StopFlag, U32 *RdyTrigCnt);
+376: I16 __stdcall WD_SSI_SourceConn (U16 wCardNumber, U16 sigCode);
+377: I16 __stdcall WD_SSI_SourceDisConn (U16 wCardNumber, U16 sigCode);
+378: I16 __stdcall WD_SSI_SourceClear (U16 wCardNumber);
+379: I16 __stdcall WD_Route_Signal (U16 wCardNumber, U16 signal, U16 Line, U16 dir);
+380: I16 __stdcall WD_Signal_DisConn (U16 wCardNumber, U16 signal, U16 Line);
+381: I16 __stdcall WD_AD_Auto_Calibration_ALL(U16 wCardNumber);
+382: I16 __stdcall WD_EEPROM_CAL_Constant_Update(U16 wCardNumber, U16 bank);
+383: I16 __stdcall WD_Load_CAL_Data(U16 wCardNumber, U16 bank);
+384: I16 __stdcall WD_Get_Default_Load_Area (U16 wCardNumber);
+385: I16 __stdcall WD_Set_Default_Load_Area(U16 wCardNumber, U16 bank);
+386: I16 __stdcall WD_AD_Calibration_Action (U16 wCardNumber, U16 calop, U16 srcLoc, U16 destLoc);
+387: I16 __stdcall WD_DI_ReadLine (U16 CardNumber, U16 Port, U16 Line, U16 *State);
+388: I16 __stdcall WD_DI_ReadPort (U16 CardNumber, U16 Port, U32 *Value);
+389: I16 __stdcall WD_DO_WriteLine (U16 CardNumber, U16 Port, U16 Line, U16 Value);
+390: I16 __stdcall WD_DO_WritePort (U16 CardNumber, U16 Port, U32 Value);
+391: I16 __stdcall WD_DO_ReadLine (U16 CardNumber, U16 Port, U16 Line, U16 *Value);
+392: I16 __stdcall WD_DO_ReadPort (U16 CardNumber, U16 Port, U32 *Value);
+393: I16 __stdcall WD_DIO_PortConfig (U16 CardNumber, U16 Port, U16 mode, U16 Direction);
+394: I16 __stdcall WD_DIO_LineConfig (U16 CardNumber, U16 Port, U32 Line, U16 Direction);
+395: I16 __stdcall WD_DIO_LinesConfig (U16 CardNumber, U16 Port, U16 mode, U32 Linesdirmap);
+396: #ifdef __cplusplus
+397: }
+398: #endif
+399: #endif
+</file>
+
+<file path="Wd-dask64.h">
+  1: #ifndef		_WD_DASK_H
+  2: #define		_WD_DASK_H
+  3: #ifdef __cplusplus
+  4: extern "C" {
+  5: #endif
+  6: typedef unsigned char   U8;
+  7: typedef short           I16;
+  8: typedef unsigned short  U16;
+  9: typedef long            I32;
+ 10: typedef unsigned long   U32;
+ 11: typedef float           F32;
+ 12: typedef double          F64;
+ 13: #define PCI_9820        0x1
+ 14: #define PXI_9816D       0x2
+ 15: #define PXI_9826D       0x3
+ 16: #define PXI_9846D       0x4
+ 17: #define PXI_9846DW      0x4
+ 18: #define PXI_9816H       0x5
+ 19: #define PXI_9826H       0x6
+ 20: #define PXI_9846H       0x7
+ 21: #define PXI_9846HW      0x7
+ 22: #define PXI_9816V       0x8
+ 23: #define PXI_9826V       0x9
+ 24: #define PXI_9846V       0xa
+ 25: #define PXI_9846VW      0xa
+ 26: #define PXI_9846VID     0xb
+ 27: #define PCI_9816D       0x12
+ 28: #define PCI_9826D       0x13
+ 29: #define PCI_9846D       0x14
+ 30: #define PCI_9846DW      0x14
+ 31: #define PCI_9816H       0x15
+ 32: #define PCI_9826H       0x16
+ 33: #define PCI_9846H       0x17
+ 34: #define PCI_9846HW      0x17
+ 35: #define PCI_9816V       0x18
+ 36: #define PCI_9826V       0x19
+ 37: #define PCI_9846V       0x1a
+ 38: #define PCI_9846VW      0x1a
+ 39: #define PCIe_9816D      0x22
+ 40: #define PCIe_9826D      0x23
+ 41: #define PCIe_9846D      0x24
+ 42: #define PCIe_9846DW     0x24
+ 43: #define PCIe_9816H      0x25
+ 44: #define PCIe_9826H      0x26
+ 45: #define PCIe_9846H      0x27
+ 46: #define PCIe_9846HW     0x27
+ 47: #define PCIe_9816V      0x28
+ 48: #define PCIe_9826V      0x29
+ 49: #define PCIe_9846V      0x2a
+ 50: #define PCIe_9846VW     0x2a
+ 51: #define PCIe_9842       0x30
+ 52: #define PXIe_9848       0x32
+ 53: #define PCIe_9852       0x33
+ 54: #define PXIe_9852       0x34
+ 55: #define PCIe_9814       0x35
+ 56: #define PCI_9816        PXI_9816D
+ 57: #define PCI_9826        PXI_9826D
+ 58: #define PCI_9846        PXI_9846D
+ 59: #define MAX_CARD        32
+ 60: #define NoError                       0
+ 61: #define ErrorUnknownCardType         -1
+ 62: #define ErrorInvalidCardNumber       -2
+ 63: #define ErrorTooManyCardRegistered   -3
+ 64: #define ErrorCardNotRegistered       -4
+ 65: #define ErrorFuncNotSupport          -5
+ 66: #define ErrorInvalidIoChannel        -6
+ 67: #define ErrorInvalidAdRange          -7
+ 68: #define ErrorContIoNotAllowed        -8
+ 69: #define ErrorDiffRangeNotSupport     -9
+ 70: #define ErrorLastChannelNotZero      -10
+ 71: #define ErrorChannelNotDescending    -11
+ 72: #define ErrorChannelNotAscending     -12
+ 73: #define ErrorOpenDriverFailed        -13
+ 74: #define ErrorOpenEventFailed         -14
+ 75: #define ErrorTransferCountTooLarge   -15
+ 76: #define ErrorNotDoubleBufferMode     -16
+ 77: #define ErrorInvalidSampleRate       -17
+ 78: #define ErrorInvalidCounterMode      -18
+ 79: #define ErrorInvalidCounter          -19
+ 80: #define ErrorInvalidCounterState     -20
+ 81: #define ErrorInvalidBinBcdParam      -21
+ 82: #define ErrorBadCardType             -22
+ 83: #define ErrorInvalidDaRefVoltage     -23
+ 84: #define ErrorAdTimeOut               -24
+ 85: #define ErrorNoAsyncAI               -25
+ 86: #define ErrorNoAsyncAO               -26
+ 87: #define ErrorNoAsyncDI               -27
+ 88: #define ErrorNoAsyncDO               -28
+ 89: #define ErrorNotInputPort            -29
+ 90: #define ErrorNotOutputPort           -30
+ 91: #define ErrorInvalidDioPort          -31
+ 92: #define ErrorInvalidDioLine          -32
+ 93: #define ErrorContIoActive            -33
+ 94: #define ErrorDblBufModeNotAllowed    -34
+ 95: #define ErrorConfigFailed            -35
+ 96: #define ErrorInvalidPortDirection    -36
+ 97: #define ErrorBeginThreadError        -37
+ 98: #define ErrorInvalidPortWidth        -38
+ 99: #define ErrorInvalidCtrSource        -39
+100: #define ErrorOpenFile                -40
+101: #define ErrorAllocateMemory          -41
+102: #define ErrorDaVoltageOutOfRange     -42
+103: #define ErrorDaExtRefNotAllowed      -43
+104: #define ErrorInvalidBufferID         -44
+105: #define ErrorInvalidCNTInterval	     -45
+106: #define ErrorReTrigModeNotAllowed    -46
+107: #define ErrorResetBufferNotAllowed   -47
+108: #define ErrorAnaTriggerLevel         -48
+109: #define ErrorDAQEvent		     -49
+110: #define ErrorInvalidDataSize         -50
+111: #define ErrorOffsetCalibration       -51
+112: #define ErrorGainCalibration         -52
+113: #define ErrorCountOutofSDRAMSize     -53
+114: #define ErrorNotStartTriggerModule   -54
+115: #define ErrorInvalidRouteLine        -55
+116: #define ErrorInvalidSignalCode       -56
+117: #define ErrorInvalidSignalDirection  -57
+118: #define ErrorTRGOSCalibration        -58
+119: #define ErrorNoSDRAM                 -59
+120: #define ErrorIntegrationGain         -60
+121: #define ErrorAcquisitionTiming       -61
+122: #define ErrorIntegrationTiming       -62
+123: #define ErrorInvalidTraceCnt         -63
+124: #define ErrorTriggerSource           -64
+125: #define ErrorInvalidTimeBase         -70
+126: #define ErrorUndefinedParameter	     -71
+127: #define ErrorNotDAQSteppedMode       -80
+128: #define ErrorBufAddrNotQuadDWordAlignment   -90
+129: #define ErrorDeviceIsRunning	 -106
+130: #define ErrorCalAddress		     -110
+131: #define ErrorInvalidCalBank	   -111
+132: #define ErrorPLLNotLocked		 	 -126
+133: #define ErrorCLKNotPresent		 -127
+134: #define ErrorConfigIoctl	     -201
+135: #define ErrorAsyncSetIoctl	     -202
+136: #define ErrorDBSetIoctl		     -203
+137: #define ErrorDBHalfReadyIoctl	     -204
+138: #define ErrorContOPIoctl	     -205
+139: #define ErrorContStatusIoctl	     -206
+140: #define ErrorPIOIoctl		     -207
+141: #define ErrorDIntSetIoctl	     -208
+142: #define ErrorWaitEvtIoctl	     -209
+143: #define ErrorOpenEvtIoctl	     -210
+144: #define ErrorCOSIntSetIoctl	     -211
+145: #define ErrorMemMapIoctl	     -212
+146: #define ErrorMemUMapSetIoctl	     -213
+147: #define ErrorCTRIoctl		     -214
+148: #define ErrorGetResIoctl	     -215
+149: #define ErrorNotSuportOldDriver    -301
+150: #define TRUE    1
+151: #define FALSE   0
+152: #define SYNCH_OP        1
+153: #define ASYNCH_OP       2
+154: #define AD_B_10_V       1
+155: #define AD_B_5_V        2
+156: #define AD_B_2_5_V      3
+157: #define AD_B_1_25_V     4
+158: #define AD_B_0_625_V    5
+159: #define AD_B_0_3125_V   6
+160: #define AD_B_0_5_V      7
+161: #define AD_B_0_05_V     8
+162: #define AD_B_0_005_V    9
+163: #define AD_B_1_V       10
+164: #define AD_B_0_1_V     11
+165: #define AD_B_0_01_V    12
+166: #define AD_B_0_001_V   13
+167: #define AD_U_20_V      14
+168: #define AD_U_10_V      15
+169: #define AD_U_5_V       16
+170: #define AD_U_2_5_V     17
+171: #define AD_U_1_25_V    18
+172: #define AD_U_1_V       19
+173: #define AD_U_0_1_V     20
+174: #define AD_U_0_01_V    21
+175: #define AD_U_0_001_V   22
+176: #define AD_B_2_V	   23
+177: #define AD_B_0_25_V    24
+178: #define AD_B_0_2_V     25
+179: #define AD_U_4_V	   26
+180: #define AD_U_2_V	   27
+181: #define AD_U_0_5_V     28
+182: #define AD_U_0_4_V     29
+183: #define AD_B_1_5_V     30
+184: #define AD_B_0_2145_V  31
+185: #define All_Channels   -1
+186: #define WD_AI_ADCONVSRC_TimePacer 0
+187: #define WD_AI_TRGSRC_SOFT      0x00
+188: #define WD_AI_TRGSRC_ANA       0x01
+189: #define WD_AI_TRGSRC_ExtD      0x02
+190: #define WD_AI_TRSRC_SSI_1      0x03
+191: #define WD_AI_TRSRC_SSI_2      0x04
+192: #define WD_AI_TRSRC_PXIStar    0x05
+193: #define WD_AI_TRSRC_PXIeStar   0x06
+194: #define WD_AI_TRGMOD_POST      0x00
+195: #define WD_AI_TRGMOD_PRE       0x01
+196: #define WD_AI_TRGMOD_MIDL      0x02
+197: #define WD_AI_TRGMOD_DELAY     0x03
+198: #define WD_AI_TrgPositive      0x1
+199: #define WD_AI_TrgNegative      0x0
+200: #define WD_AI_TRSRC_PXIStart   0x05
+201: #define WD_AIEvent_Manual      0x80
+202: #define CH0ATRIG	   0x00
+203: #define CH1ATRIG	   0x01
+204: #define CH2ATRIG	   0x02
+205: #define CH3ATRIG	   0x03
+206: #define CH4ATRIG	   0x04
+207: #define CH5ATRIG	   0x05
+208: #define CH6ATRIG	   0x06
+209: #define CH7ATRIG	   0x07
+210: #define WD_ExtTimeBase		  0x0
+211: #define WD_SSITimeBase		  0x1
+212: #define	WD_StarTimeBase		  0x2
+213: #define WD_IntTimeBase		  0x3
+214: #define	WD_PXI_CLK10		  0x4
+215: #define	WD_PLL_REF_PXICLK10	  0x4
+216: #define	WD_PLL_REF_EXT10	  0x5
+217: #define	WD_PLL_REF_EXT		  WD_PLL_REF_EXT10
+218: #define	WD_PXIe_CLK100		  0x6
+219: #define WD_PLL_REF_PXIeCLK100	  0x6
+220: #define	WD_DBoard_TimeBase	  0x7
+221: #define SSI_TIME	15
+222: #define SSI_TRIG_SRC1   7
+223: #define SSI_TRIG_SRC2   5
+224: #define SSI_TRIG_SRC2_S 5
+225: #define SSI_TRIG_SRC2_T 6
+226: #define SSI_PRE_DATA_RDY 0x10
+227: #define PXI_TRIG_0      0
+228: #define PXI_TRIG_1      1
+229: #define PXI_TRIG_2      2
+230: #define PXI_TRIG_3      3
+231: #define PXI_TRIG_4      4
+232: #define PXI_TRIG_5      5
+233: #define PXI_TRIG_6      6
+234: #define PXI_TRIG_7      7
+235: #define PXI_STAR_TRIG   8
+236: #define TRG_IO		9
+237: #define PXI_START_TRIG  8
+238: #define SSI_LINE_0      0
+239: #define SSI_LINE_1      1
+240: #define SSI_LINE_2      2
+241: #define SSI_LINE_3      3
+242: #define SSI_LINE_4      4
+243: #define SSI_LINE_5      5
+244: #define SSI_LINE_6      6
+245: #define SSI_LINE_7      7
+246: #define SOFTTRIG_AI	 0x1
+247: #define SOFTTRIG_AI_OUT	 0x2
+248: #define DAQEnd   0
+249: #define DBEvent  1
+250: #define TrigEvent  2
+251: #define DAQSTEPPED   	0x1
+252: #define RestartEn	0x2
+253: #define DualBufEn	0x4
+254: #define ManualSoftTrg 	0x40
+255: #define DMASTEPPED    	0x80
+256: #define AI_AVE		0x8
+257: #define AI_AVE_32	0x10
+258: #define AI_RANGE	0
+259: #define AI_IMPEDANCE	1
+260: #define ADC_DITHER	2
+261: #define AI_COUPLING	3
+262: #define ADC_Bandwidth	4
+263: #define SIGNAL_FIR		5
+264: #define IMPEDANCE_50Ohm 0
+265: #define IMPEDANCE_HI	1
+266: #define ADC_DITHER_DIS	0
+267: #define ADC_DITHER_EN	1
+268: #define DC_Coupling	0
+269: #define AC_Coupling	1
+270: #define BANDWIDTH_DEVICE_DEFAULT 	0
+271: #define BANDWIDTH_20M	20
+272: #define BANDWIDTH_100M	100
+273: #define FIR_DIS				0
+274: #define FIR_EN_20M		1
+275: #define FIR_EN_10M		2
+276: #define AITRIGOUT_CH0	0
+277: #define AITRIGOUT_PXI	2
+278: #define AITRIGOUT_PXI_TRIG_0	2
+279: #define AITRIGOUT_PXI_TRIG_1	3
+280: #define AITRIGOUT_PXI_TRIG_2	4
+281: #define AITRIGOUT_PXI_TRIG_3	5
+282: #define AITRIGOUT_PXI_TRIG_4	6
+283: #define AITRIGOUT_PXI_TRIG_5	7
+284: #define AITRIGOUT_PXI_TRIG_6	8
+285: #define AITRIGOUT_PXI_TRIG_7	9
+286: #define INPUT_PORT      1
+287: #define OUTPUT_PORT     2
+288: #define INPUT_LINE      1
+289: #define OUTPUT_LINE     2
+290: #define SDI_En      0
+291: #define SDI_Dis     1
+292: #define CalLoad		0
+293: #define AutoCal		1
+294: #define CalCopy		2
+295: #define VAL_MAX		0
+296: #define VAL_MIN		1
+297: #define WD_OutTrgPWidth_50ns   0x0
+298: #define WD_OutTrgPWidth_100ns  0x1
+299: #define WD_OutTrgPWidth_150ns  0x2
+300: #define WD_OutTrgPWidth_200ns  0x3
+301: #define WD_OutTrgPWidth_500ns  0x4
+302: #define WD_OutTrgPWidth_1us    0x5
+303: #define WD_OutTrgPWidth_2us    0x6
+304: #define WD_OutTrgPWidth_5us    0x7
+305: #define WD_OutTrgPWidth_10us   0x8
+306: #define WD_OutTrgSrcAuto   0x0
+307: #define WD_OutTrgSrcManual 0x1
+308: #define WD_OutTrg_Rising   0x0
+309: #define WD_OutTrg_Fall     0x10
+310: typedef struct
+311: {
+312: U16 wModuleType;
+313: U16 wCardID;
+314: U16 geo_addr;
+315: U16 Reserved;
+316: char dispname[64];
+317: } WD_DEVICE, *PWD_DEVICE;
+318: I16 __stdcall WD_Register_Card (U16 CardType, U16 card_num);
+319: I16 __stdcall WD_Register_Card_By_PXISlot_GA (U16 CardType, U16 ga);
+320: I16 __stdcall WD_Get_SDRAMSize  (U16 CardNumber, U32 *sdramsize);
+321: I16 __stdcall WD_SoftTriggerGen(U16 wCardNumber, U8 op);
+322: I16 __stdcall WD_Release_Card  (U16 CardNumber);
+323: I16 __stdcall WD_GetActualRate(U16 wCardNumber, BOOLEAN fdir, F64 Rate, U32* interval, F64 *ActualRate);
+324: I16 __stdcall WD_GetPXIGeographAddr (U16 wCardNumber, U8* geo_addr);
+325: I16 __stdcall WD_GetBaseAddr(U16 wCardNumber, U32 *BaseAddr, U32 *BaseAddr2);
+326: void * __stdcall WD_Buffer_Alloc (U16 wCardNumber, U32 dwSize);
+327: BOOL __stdcall WD_Buffer_Free (U16 wCardNumber, void *buf);
+328: I16 __stdcall WD_Device_Scan(WD_DEVICE* AvailModules, U16 ncount, U16* retcnt);
+329: I16 __stdcall WD_GetFPGAVersion(USHORT wCardNumber, U32* version);
+330: I16 __stdcall WD_GetSerialNumber(U16 wCardNumber, U8 *SerialString, U8 numberOfElements, U8* actualread);
+331: I16 __stdcall WD_AI_Config (U16 wCardNumber, U16 TimeBase, BOOLEAN adDutyRestore, U16 ConvSrc, BOOLEAN doubleEdged, BOOLEAN AutoResetBuf);
+332: I16 __stdcall WD_AI_Trig_Config (U16 wCardNumber, U16 trigMode, U16 trigSrc, U16 trigPol, U16 anaTrigchan, F64 anaTriglevel, U32 postTrigScans, U32 preTrigScans, U32 trigDelayTicks, U32 reTrgCnt);
+333: I16 __stdcall WD_OutTrig_Config (U16 wCardNumber, U16 trig_Ch, U16 trig_conf, U16 trig_width);
+334: I16 __stdcall WD_AI_Set_Mode (U16 wCardNumber, U16 modeCtrl, U16 wIter);
+335: I16 __stdcall WD_AI_CH_Config (U16 wCardNumber, U16 wChannel, U16 wAdRange);
+336: I16 __stdcall WD_AI_CH_ChangeParam (U16 wCardNumber, U16 wChannel, U16 wParam, U16 wValue);
+337: I16 __stdcall WD_AI_InitialMemoryAllocated (U16 CardNumber, U32 *MemSize);
+338: I16 __stdcall WD_AI_VoltScale (U16 CardNumber, U16 AdRange, I16 reading, F64 *voltage);
+339: I16 __stdcall WD_AI_VoltScale32 (U16 CardNumber, U16 AdRange, I32 reading, F64 *voltage);
+340: I16 __stdcall WD_AI_ContReadChannel (U16 CardNumber, U16 Channel,
+341:                U16 BufId, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+342: I16 __stdcall WD_AI_ContReadMultiChannels (U16 CardNumber, U16 NumChans, U16 *Chans,
+343:                U16 BufId, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+344: I16 __stdcall WD_AI_ContScanChannels (U16 CardNumber, U16 Channel,
+345:                U16 BufId, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+346: I16 __stdcall WD_AI_ContReadChannelToFile (U16 CardNumber, U16 Channel, U16 BufId,
+347:                U8 *FileName, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+348: I16 __stdcall WD_AI_ContReadMultiChannelsToFile (U16 CardNumber, U16 NumChans, U16 *Chans,
+349:                U16 BufId, U8 *FileName, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+350: I16 __stdcall WD_AI_ContScanChannelsToFile (U16 CardNumber, U16 Channel, U16 BufId,
+351:                U8 *FileName, U32 ReadScans, U32 ScanIntrv, U32 SampIntrv, U16 SyncMode);
+352: I16 __stdcall WD_AI_ContStatus (U16 CardNumber, U32 *Status);
+353: I16 __stdcall WD_AI_ContVScale (U16 wCardNumber, U16 adRange, void *readingArray, F64 *voltageArray, I32 count);
+354: I16 __stdcall WD_AI_ContVScaleEx (U16 wCardNumber, U16 adRange, U16 width, void *readingArray, F64 *voltageArray, I32 count);
+355: I16 __stdcall WD_AI_Array_Scale (U16 wCardNumber, U16 numRanges, U16 *rangeList, U16 width, void *readingArray, F64 *voltageArray, I32 count);
+356: I16 __stdcall WD_AI_AsyncCheck (U16 CardNumber, BOOLEAN *Stopped, U32 *AccessCnt);
+357: I16 __stdcall WD_AI_AsyncClear (U16 CardNumber, U32 *StartPos, U32 *AccessCnt);
+358: I16 __stdcall WD_AI_AsyncClearEx (U16 CardNumber, U32 *StartPos, U32 *AccessCnt, U32 NoWait);
+359: I16 __stdcall WD_AI_AsyncDblBufferHalfReady (U16 CardNumber, BOOLEAN *HalfReady, BOOLEAN *StopFlag);
+360: I16 __stdcall WD_AI_AsyncDblBufferMode (U16 CardNumber, BOOLEAN Enable);
+361: I16 __stdcall WD_AI_AsyncDblBufferToFile (U16 CardNumber);
+362: I16 __stdcall WD_AI_ContBufferSetup (U16 wCardNumber, void *pwBuffer, U32 dwReadCount, U16 *BufferId);
+363: I16 __stdcall WD_AI_ContBufferSetup32 (U16 wCardNumber, void *pwBuffer, U32 dwReadCount, U16 *BufferId);
+364: I16 __stdcall WD_AI_ContBufferReset (U16 wCardNumber);
+365: I16 __stdcall WD_AI_DMA_Transfer (U16 wCardNumber, U16 BufId);
+366: I16 __stdcall WD_AI_ConvertCheck (U16 wCardNumber, BOOLEAN *bStopped);
+367: I16 __stdcall WD_AI_AsyncReStartNextReady (U16 wCardNumber, BOOLEAN *bReady, BOOLEAN *StopFlag, U16 *RdyDaqCnt);
+368: I16 __stdcall WD_AI_EventCallBack_x64 (U16 wCardNumber, I16 mode, I16 EventType, ULONG_PTR callbackAddr);
+369: I16 __stdcall WD_AI_DMA_TransferBySize (U16 wCardNumber, F32 timeLimit,  U16 BufId, U32 dwReadCount, U32 *numRead, U32 *dataNotTransferred, U8 *complete);
+370: I16 __stdcall WD_AI_AsyncDblBufferToFileBySize (U16 wCardNumber, U16 bufid, U32 cnt);
+371: I16 __stdcall WD_AI_ContBufferLock (U16 wCardNumber, void *pwBuffer, U32 dwReadCount, U16 *BufferId);
+372: I16 __stdcall WD_AI_SetTimeout (U16 wCardNumber, U32 msec);
+373: I16 __stdcall WD_MeasureStats(U16 wCardNumber, U16 wNumChans, U16 *chans, U16 item, void* valBuf);
+374: I16 __stdcall WD_AI_AsyncDblBufferOverrun (U16 wCardNumber, U16 op, U16 *overrunFlag);
+375: I16 __stdcall WD_AI_AsyncDblBufferHandled (U16 wCardNumber);
+376: I16 __stdcall WD_AI_AsyncReTrigNextReady (U16 wCardNumber, BOOLEAN *bReady, BOOLEAN *StopFlag, U32 *RdyTrigCnt);
+377: I16 __stdcall WD_SSI_SourceConn (U16 wCardNumber, U16 sigCode);
+378: I16 __stdcall WD_SSI_SourceDisConn (U16 wCardNumber, U16 sigCode);
+379: I16 __stdcall WD_SSI_SourceClear (U16 wCardNumber);
+380: I16 __stdcall WD_Route_Signal (U16 wCardNumber, U16 signal, U16 Line, U16 dir);
+381: I16 __stdcall WD_Signal_DisConn (U16 wCardNumber, U16 signal, U16 Line);
+382: I16 __stdcall WD_AD_Auto_Calibration_ALL(U16 wCardNumber);
+383: I16 __stdcall WD_EEPROM_CAL_Constant_Update(U16 wCardNumber, U16 bank);
+384: I16 __stdcall WD_Load_CAL_Data(U16 wCardNumber, U16 bank);
+385: I16 __stdcall WD_Get_Default_Load_Area (U16 wCardNumber);
+386: I16 __stdcall WD_Set_Default_Load_Area(U16 wCardNumber, U16 bank);
+387: I16 __stdcall WD_AD_Calibration_Action (U16 wCardNumber, U16 calop, U16 srcLoc, U16 destLoc);
+388: I16 __stdcall WD_DI_ReadLine (U16 CardNumber, U16 Port, U16 Line, U16 *State);
+389: I16 __stdcall WD_DI_ReadPort (U16 CardNumber, U16 Port, U32 *Value);
+390: I16 __stdcall WD_DO_WriteLine (U16 CardNumber, U16 Port, U16 Line, U16 Value);
+391: I16 __stdcall WD_DO_WritePort (U16 CardNumber, U16 Port, U32 Value);
+392: I16 __stdcall WD_DO_ReadLine (U16 CardNumber, U16 Port, U16 Line, U16 *Value);
+393: I16 __stdcall WD_DO_ReadPort (U16 CardNumber, U16 Port, U32 *Value);
+394: I16 __stdcall WD_DIO_PortConfig (U16 CardNumber, U16 Port, U16 mode, U16 Direction);
+395: I16 __stdcall WD_DIO_LineConfig (U16 CardNumber, U16 Port, U32 Line, U16 Direction);
+396: I16 __stdcall WD_DIO_LinesConfig (U16 CardNumber, U16 Port, U16 mode, U32 Linesdirmap);
+397: #ifdef __cplusplus
+398: }
+399: #endif
+400: #endif
+</file>
+
+<file path="wddaskex.h">
+ 1: #ifndef		_WDDASKEX_H
+ 2: #define		_WDDASKEX_H
+ 3: #ifdef __cplusplus
+ 4: extern "C" {
+ 5: #endif
+ 6: #pragma pack(push,1)
+ 7: typedef struct _DAS_IOT_DEV_PROP
+ 8: {
+ 9: 		short	card_type;
+10: 		short	num_of_channel;
+11: 		short	data_width;
+12: 		short   default_range;
+13: 		unsigned long	ctrKHz;
+14: 		unsigned long   bdbase;
+15: 		unsigned long   mask;
+16: 		unsigned long	reserved[15];
+17: }
+18: DAS_IOT_DEV_PROP;
+19: #pragma pack(pop)
+20: unsigned short __stdcall WD_ChooseDeviceType(unsigned short app);
+21: short __stdcall WD_GetDeviceProperties (unsigned short wCardNumber, unsigned short type, DAS_IOT_DEV_PROP* cardProp);
+22: #ifdef __cplusplus
+23: }
+24: #endif
+25: #endif
+</file>
+
+<file path="DeviceControl_FullThreaded.c">
+   1: #include <windows.h>
+   2: #include <utility.h>
+   3: #include <userint.h>
+   4: #include <ansi_c.h>
+   5: #include <stddef.h>
+   6: #include <visa.h>
+   7: #include <formatio.h>
+   8: #include <math.h>
+   9: #include "dds.h"
+  10: #include "Wd-dask.h"
+  11: #include "DeviceControl_FullThreaded.h"
+  12: #define MAX_RESOURCES       32
+  13: #define RESOURCE_STR_LEN    256
+  14: #define READ_BUF_LEN        256
+  15: #define UIR_FILE            "DeviceControl_FullThreaded.uir"
+  16: #define ADC_NUM_CHANNELS    2
+  17: #define FFT_MAX_SIZE        65536
+  18: #define PI                  3.14159265358979323846
+  19: #define RADAR_FILE_MAGIC    0x52444152
+  20: #pragma pack(push, 1)
+  21: typedef struct {
+  22:     unsigned int   magic;
+  23:     unsigned int   num_channels;
+  24:     unsigned int   samples_per_trigger;
+  25:     unsigned int   num_triggers;
+  26:     double         sample_rate_hz;
+  27:     double         dds_start_freq_hz;
+  28:     double         dds_stop_freq_hz;
+  29:     double         dds_sweep_period_us;
+  30:     unsigned char  reserved[80];
+  31: } RadarFileHeader;
+  32: #pragma pack(pop)
+  33: static ViSession defaultRM      = VI_NULL;
+  34: static ViSession relaySession   = VI_NULL;
+  35: static ViSession psuSession     = VI_NULL;
+  36: static char resourceList[MAX_RESOURCES][RESOURCE_STR_LEN];
+  37: static int  numResources = 0;
+  38: static int mainPanel;
+  39: static int relayTabHandle, psuTabHandle, ddsTabHandle, adcTabHandle;
+  40: static int relay1State = 0, relay2State = 0;
+  41: static int ch1OutState = 0, ch2OutState = 0, ch3OutState = 0;
+  42: static int ddsConnected = 0;
+  43: static int ddsSweepActive = 0;
+  44: static double lastActualPeriod_us = 0.0;
+  45: static I16    adcCard       = -1;
+  46: static int    adcRegistered = 0;
+  47: static int    adcRunning    = 0;
+  48: static U16   *dmaBuffer1      = NULL;
+  49: static U16   *dmaBuffer2      = NULL;
+  50: static U16    adcBufId        = 0;
+  51: static U32    halfBufferSize  = 0;
+  52: static U32    samplesPerChirp = 0;
+  53: static U32    absoluteSampleCount = 0;
+  54: static int    currentProgDiv      = 1;
+  55: static CmtTSQHandle dmaQueue            = 0;
+  56: static CmtThreadFunctionID consumerThreadID = 0;
+  57: static CmtThreadFunctionID producerThreadID = 0;
+  58: static volatile int isAcquiring         = 0;
+  59: static double fftReal[FFT_MAX_SIZE];
+  60: static double fftImag[FFT_MAX_SIZE];
+  61: static double fftMagCH0[FFT_MAX_SIZE];
+  62: static double fftMagCH1[FFT_MAX_SIZE];
+  63: static int    recording       = 0;
+  64: static FILE  *recordFile      = NULL;
+  65: static U32    recordedTrigs   = 0;
+  66: static char   recordPath[512] = "";
+  67: /* ---- UI Plotting & Diagnostic State ---- */
+  68: static U16          plotBuffer[FFT_MAX_SIZE * 2];
+  69: static int          plotSamples      = 0;
+  70: static volatile int plotBusy         = 0;
+  71: static int          heartbeatCounter = 0;  /* Diagnostic: counts processed buffers */
+  72: static double       timeDataCH0[FFT_MAX_SIZE];
+  73: static double       timeDataCH1[FFT_MAX_SIZE];
+  74: static double       currentAdcVoltageLimit = 1.0; /* 1.0V or 5.0V based on UI */
+  75: static double       currentAdcSampleRateHz = 40000000.0; /* Updated by timing calculator */
+  76: /* ---- FMCW Range Axis ---- */
+  77: #define FREQ_MULTIPLIER   3       /* Tx chain frequency tripler */
+  78: #define SPEED_OF_LIGHT    3.0e8   /* m/s */
+  79: static double       rangeAxis[FFT_MAX_SIZE]; /* Range in metres per FFT bin */
+  80: /*---------------------------------------------------------------------------
+  81:  * Forward Declarations
+  82:  *---------------------------------------------------------------------------*/
+  83: /* VISA */
+  84: static void ScanVISAResources (void);
+  85: /* Relay */
+  86: static int  Relay_Connect    (const char *resource);
+  87: static void Relay_Disconnect (void);
+  88: static int  Relay_Set        (int relayNum, int state);
+  89: /* PSU */
+  90: static int  PSU_Connect      (const char *resource);
+  91: static void PSU_Disconnect   (void);
+  92: static int  PSU_SendCmd      (const char *cmd);
+  93: static int  PSU_Query        (const char *cmd, char *resp, int maxLen);
+  94: static int  PSU_SetVoltage   (int ch, double volts);
+  95: static int  PSU_SetCurrent   (int ch, double amps);
+  96: static int  PSU_OutputOnOff  (int ch, int on);
+  97: static void PSU_ReadMeasurements (void);
+  98: static void SetPSUDimmed        (int dimmed);
+  99: /* ADC helpers */
+ 100: static void ADC_ComputeFFT   (U16 *data, int nSamples, int chOffset, int nCh, double *outMag);
+ 101: static void CVICALLBACK ADC_PlotFFT_Deferred (void *callbackData);
+ 102: static int  ADC_SaveRawFile  (const char *path);
+ 103: static void ADC_RecordWriteHeader (void);
+ 104: static void ADC_RecordAppendData  (void);
+ 105: static void ADC_RecordFinish      (void);
+ 106: static int  ADC_RestartAcquisition (void);
+ 107: /* Simple FFT */
+ 108: static void FFT_Radix2       (double *re, double *im, int n);
+ 109: static int  NextPow2         (int v);
+ 110: /* Forward declarations for new functions */
+ 111: int  CVICALLBACK DiskWriterThreadFunction (void *functionData);
+ 112: int  CVICALLBACK HardwarePollThreadFunction (void *functionData);
+ 113: void CVICALLBACK ADC_PlotFFT_Deferred (void *callbackData);
+ 114: void CVICALLBACK Overrun_Deferred (void *callbackData);
+ 115: /*===========================================================================
+ 116:  *  MAIN
+ 117:  *===========================================================================*/
+ 118: int main (int argc, char *argv[])
+ 119: {
+ 120:     if (InitCVIRTE (0, argv, 0) == 0) return -1;
+ 121:     if (viOpenDefaultRM (&defaultRM) < VI_SUCCESS)
+ 122:     {
+ 123:         MessagePopup ("Error", "Cannot open VISA resource manager.\n"
+ 124:                       "Make sure NI-VISA is installed.");
+ 125:         return -1;
+ 126:     }
+ 127:     mainPanel = LoadPanel (0, UIR_FILE, MAIN_PANEL);
+ 128:     if (mainPanel < 0)
+ 129:     {
+ 130:         MessagePopup ("Error", "Cannot load .uir file");
+ 131:         viClose (defaultRM);
+ 132:         return -1;
+ 133:     }
+ 134:     GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 0, &psuTabHandle);
+ 135:     GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 1, &relayTabHandle);
+ 136:     GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 2, &ddsTabHandle);
+ 137:     GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 3, &adcTabHandle);
+ 138:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_DISCONNECT, ATTR_DIMMED, 1);
+ 139:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY1,       ATTR_DIMMED, 1);
+ 140:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY2,       ATTR_DIMMED, 1);
+ 141:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_DISCONNECT, ATTR_DIMMED, 1);
+ 142:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_TIMER_READBACK, ATTR_ENABLED, 0);
+ 143:     SetPSUDimmed (1);
+ 144:     ScanVISAResources ();
+ 145:     DisplayPanel (mainPanel);
+ 146:     RunUserInterface ();
+ 147:     Relay_Disconnect ();
+ 148:     PSU_Disconnect ();
+ 149:     if (ddsConnected) { deinit_dds (); ddsConnected = 0; }
+ 150:     if (recording) { ADC_RecordFinish (); recording = 0; }
+ 151:     if (adcRunning)
+ 152:     {
+ 153:         U32 dummy1, dummy2;
+ 154:         WD_AI_AsyncClear (adcCard, &dummy1, &dummy2);
+ 155:     }
+ 156:     if (dmaBuffer1) { WD_Buffer_Free (adcCard, dmaBuffer1); dmaBuffer1 = NULL; }
+ 157:     if (dmaBuffer2) { WD_Buffer_Free (adcCard, dmaBuffer2); dmaBuffer2 = NULL; }
+ 158:     if (adcRegistered) { WD_AI_ContBufferReset (adcCard); WD_Release_Card (adcCard); }
+ 159:     if (defaultRM != VI_NULL) viClose (defaultRM);
+ 160:     DiscardPanel (mainPanel);
+ 161:     CloseCVIRTE ();
+ 162:     return 0;
+ 163: }
+ 164: static void ScanVISAResources (void)
+ 165: {
+ 166:     ViFindList findList;
+ 167:     ViUInt32   numFound;
+ 168:     ViChar     desc[RESOURCE_STR_LEN];
+ 169:     char       displayStr[RESOURCE_STR_LEN + 64];
+ 170:     ViStatus   status;
+ 171:     numResources = 0;
+ 172:     ClearListCtrl (relayTabHandle, RELAY_TAB_RELAY_RING_RESOURCE);
+ 173:     ClearListCtrl (psuTabHandle,   PSU_TAB_PSU_RING_RESOURCE);
+ 174:     if (defaultRM == VI_NULL) return;
+ 175:     status = viFindRsrc (defaultRM, "?*INSTR", &findList, &numFound, desc);
+ 176:     if (status < VI_SUCCESS || numFound == 0) return;
+ 177:     do {
+ 178:         strncpy (resourceList[numResources], desc, RESOURCE_STR_LEN - 1);
+ 179:         if (strstr(desc, "ASRL18::INSTR") != NULL)
+ 180:         {
+ 181:             sprintf(displayStr, "%s (KMTronic USB Relay)", desc);
+ 182:         }
+ 183:         else if (strstr(desc, "USB") != NULL && strstr(desc, "::INSTR") != NULL)
+ 184:         {
+ 185:             sprintf(displayStr, "%s (Siglent SPD3303X)", desc);
+ 186:         }
+ 187:         else
+ 188:         {
+ 189:             strcpy(displayStr, desc);
+ 190:         }
+ 191:         InsertListItem (relayTabHandle, RELAY_TAB_RELAY_RING_RESOURCE, -1, displayStr, numResources);
+ 192:         InsertListItem (psuTabHandle,   PSU_TAB_PSU_RING_RESOURCE,   -1, displayStr, numResources);
+ 193:         numResources++;
+ 194:     } while (numResources < (int)numFound && numResources < MAX_RESOURCES &&
+ 195:              viFindNext (findList, desc) == VI_SUCCESS);
+ 196:     viClose (findList);
+ 197: }
+ 198: static int Relay_Connect (const char *resource)
+ 199: {
+ 200:     ViStatus s = viOpen (defaultRM, (ViRsrc)resource, VI_NULL, 2000, &relaySession);
+ 201:     if (s < VI_SUCCESS) return -1;
+ 202:     viSetAttribute (relaySession, VI_ATTR_ASRL_BAUD,       9600);
+ 203:     viSetAttribute (relaySession, VI_ATTR_ASRL_DATA_BITS,  8);
+ 204:     viSetAttribute (relaySession, VI_ATTR_ASRL_PARITY,     VI_ASRL_PAR_NONE);
+ 205:     viSetAttribute (relaySession, VI_ATTR_ASRL_STOP_BITS,  VI_ASRL_STOP_ONE);
+ 206:     viSetAttribute (relaySession, VI_ATTR_ASRL_FLOW_CNTRL, VI_ASRL_FLOW_NONE);
+ 207:     viSetAttribute (relaySession, VI_ATTR_TMO_VALUE,       2000);
+ 208:     return 0;
+ 209: }
+ 210: static void Relay_Disconnect (void)
+ 211: {
+ 212:     if (relaySession != VI_NULL) {
+ 213:         Relay_Set (1, 0); Relay_Set (2, 0);
+ 214:         viClose (relaySession); relaySession = VI_NULL;
+ 215:     }
+ 216:     relay1State = relay2State = 0;
+ 217: }
+ 218: static int Relay_Set (int relayNum, int state)
+ 219: {
+ 220:     unsigned char cmd[3]; ViUInt32 retCnt;
+ 221:     if (relaySession == VI_NULL) return -1;
+ 222:     cmd[0] = 0xFF; cmd[1] = (unsigned char)relayNum;
+ 223:     cmd[2] = (unsigned char)(state ? 0x01 : 0x00);
+ 224:     return (viWrite (relaySession, cmd, 3, &retCnt) < VI_SUCCESS) ? -1 : 0;
+ 225: }
+ 226: static int PSU_Connect (const char *resource)
+ 227: {
+ 228:     ViStatus s = viOpen (defaultRM, (ViRsrc)resource, VI_NULL, 5000, &psuSession);
+ 229:     if (s < VI_SUCCESS) return -1;
+ 230:     viSetAttribute (psuSession, VI_ATTR_TMO_VALUE,   3000);
+ 231:     viSetAttribute (psuSession, VI_ATTR_TERMCHAR,    0x0A);
+ 232:     viSetAttribute (psuSession, VI_ATTR_TERMCHAR_EN, VI_TRUE);
+ 233:     viSetAttribute (psuSession, VI_ATTR_SEND_END_EN, VI_TRUE);
+ 234:     return 0;
+ 235: }
+ 236: static void PSU_Disconnect (void)
+ 237: {
+ 238:     if (psuSession != VI_NULL) {
+ 239:         PSU_OutputOnOff(1,0); PSU_OutputOnOff(2,0); PSU_OutputOnOff(3,0);
+ 240:         viClose (psuSession); psuSession = VI_NULL;
+ 241:     }
+ 242:     ch1OutState = ch2OutState = ch3OutState = 0;
+ 243: }
+ 244: static int PSU_SendCmd (const char *cmd)
+ 245: {
+ 246:     char buf[READ_BUF_LEN]; ViUInt32 retCnt;
+ 247:     if (psuSession == VI_NULL) return -1;
+ 248:     sprintf (buf, "%s\n", cmd);
+ 249:     return (viWrite (psuSession, (ViBuf)buf, (ViUInt32)strlen(buf), &retCnt) < VI_SUCCESS) ? -1 : 0;
+ 250: }
+ 251: static int PSU_Query (const char *cmd, char *resp, int maxLen)
+ 252: {
+ 253:     char buf[READ_BUF_LEN]; ViUInt32 retCnt; ViStatus s;
+ 254:     if (psuSession == VI_NULL) return -1;
+ 255:     sprintf (buf, "%s\n", cmd);
+ 256:     s = viWrite (psuSession, (ViBuf)buf, (ViUInt32)strlen(buf), &retCnt);
+ 257:     if (s < VI_SUCCESS) return -1;
+ 258:     memset (resp, 0, maxLen);
+ 259:     s = viRead (psuSession, (ViBuf)resp, (ViUInt32)(maxLen-1), &retCnt);
+ 260:     if (s < VI_SUCCESS && s != VI_SUCCESS_TERM_CHAR && s != VI_SUCCESS_MAX_CNT) return -1;
+ 261:     while (retCnt > 0 && (resp[retCnt-1]=='\n'||resp[retCnt-1]=='\r'||resp[retCnt-1]==' '))
+ 262:         resp[--retCnt] = '\0';
+ 263:     return 0;
+ 264: }
+ 265: static int PSU_SetVoltage (int ch, double v) { char c[64]; sprintf(c,"CH%d:VOLTage %.3f",ch,v); return PSU_SendCmd(c); }
+ 266: static int PSU_SetCurrent (int ch, double a) { char c[64]; sprintf(c,"CH%d:CURRent %.3f",ch,a); return PSU_SendCmd(c); }
+ 267: static int PSU_OutputOnOff(int ch, int on)   { char c[64]; sprintf(c,"OUTPut CH%d,%s",ch,on?"ON":"OFF"); return PSU_SendCmd(c); }
+ 268: static void PSU_ReadMeasurements (void)
+ 269: {
+ 270:     char r[READ_BUF_LEN]; double v;
+ 271:     if (PSU_Query("MEASure:VOLTage? CH1",r,sizeof(r))==0) { v=atof(r); SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH1_VOLT_READ,v); }
+ 272:     if (PSU_Query("MEASure:CURRent? CH1",r,sizeof(r))==0) { v=atof(r); SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH1_CURR_READ,v); }
+ 273:     if (PSU_Query("MEASure:POWEr? CH1",  r,sizeof(r))==0) { v=atof(r); SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH1_PWR_READ,v);  }
+ 274:     if (PSU_Query("MEASure:VOLTage? CH2",r,sizeof(r))==0) { v=atof(r); SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH2_VOLT_READ,v); }
+ 275:     if (PSU_Query("MEASure:CURRent? CH2",r,sizeof(r))==0) { v=atof(r); SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH2_CURR_READ,v); }
+ 276:     if (PSU_Query("MEASure:POWEr? CH2",  r,sizeof(r))==0) { v=atof(r); SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH2_PWR_READ,v);  }
+ 277: }
+ 278: static int NextPow2 (int v)
+ 279: {
+ 280:     int p = 1;
+ 281:     while (p < v) p <<= 1;
+ 282:     return p;
+ 283: }
+ 284: static void FFT_Radix2 (double *re, double *im, int n)
+ 285: {
+ 286:     int i, j, k, m, step;
+ 287:     double tr, ti, wr, wi, wpr, wpi, theta;
+ 288:     j = 0;
+ 289:     for (i = 0; i < n - 1; i++) {
+ 290:         if (i < j) {
+ 291:             tr = re[j]; re[j] = re[i]; re[i] = tr;
+ 292:             ti = im[j]; im[j] = im[i]; im[i] = ti;
+ 293:         }
+ 294:         m = n >> 1;
+ 295:         while (m >= 1 && j >= m) { j -= m; m >>= 1; }
+ 296:         j += m;
+ 297:     }
+ 298:     for (step = 2; step <= n; step <<= 1) {
+ 299:         theta = -2.0 * PI / (double)step;
+ 300:         wpr = cos(theta);
+ 301:         wpi = sin(theta);
+ 302:         wr = 1.0; wi = 0.0;
+ 303:         for (k = 0; k < step / 2; k++) {
+ 304:             for (i = k; i < n; i += step) {
+ 305:                 j = i + step / 2;
+ 306:                 tr = wr * re[j] - wi * im[j];
+ 307:                 ti = wr * im[j] + wi * re[j];
+ 308:                 re[j] = re[i] - tr;
+ 309:                 im[j] = im[i] - ti;
+ 310:                 re[i] += tr;
+ 311:                 im[i] += ti;
+ 312:             }
+ 313:             tr = wr;
+ 314:             wr = tr * wpr - wi * wpi;
+ 315:             wi = tr * wpi + wi * wpr;
+ 316:         }
+ 317:     }
+ 318: }
+ 319: int CVICALLBACK DiskWriterThreadFunction (void *functionData)
+ 320: {
+ 321:     U16 *localBuf = malloc(halfBufferSize * sizeof(U16));
+ 322:     static int writeCounter = 0;
+ 323:     if (!localBuf) return -1;
+ 324:     while (isAcquiring) {
+ 325:         int itemsRead = CmtReadTSQData(dmaQueue, localBuf, 1, 100, 0);
+ 326:         if (itemsRead > 0) {
+ 327:             if (recordFile != NULL) {
+ 328:                 fwrite(localBuf, sizeof(U16), halfBufferSize, recordFile);
+ 329:                 recordedTrigs += (halfBufferSize / ADC_NUM_CHANNELS) / samplesPerChirp;
+ 330:                 writeCounter++;
+ 331:                 if (writeCounter % 10 == 0) {
+ 332:                     char msg[64];
+ 333:                     sprintf(msg, "Disk Write: %d blocks", writeCounter);
+ 334:                     SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+ 335:                 }
+ 336:             }
+ 337:             if (!plotBusy && samplesPerChirp > 0 && currentProgDiv > 0) {
+ 338:                 U32 halfSamplesPerCh = halfBufferSize / ADC_NUM_CHANNELS;
+ 339:                 U32 startPhase = absoluteSampleCount % currentProgDiv;
+ 340:                 U32 offsetToFirstChirp = (startPhase == 0) ? 0 : (currentProgDiv - startPhase);
+ 341:                 if (halfSamplesPerCh > (offsetToFirstChirp + samplesPerChirp)) {
+ 342:                     U32 n_max = (halfSamplesPerCh - samplesPerChirp - offsetToFirstChirp) / currentProgDiv;
+ 343:                     U32 lastChirpStart = offsetToFirstChirp + (n_max * currentProgDiv);
+ 344:                     U32 bufferOffset = lastChirpStart * ADC_NUM_CHANNELS;
+ 345:                     plotBusy = 1;
+ 346:                     memcpy(plotBuffer, localBuf + bufferOffset, samplesPerChirp * ADC_NUM_CHANNELS * sizeof(U16));
+ 347:                     plotSamples = samplesPerChirp;
+ 348:                     PostDeferredCall((DeferredCallbackPtr)ADC_PlotFFT_Deferred, NULL);
+ 349:                 }
+ 350:             }
+ 351:             absoluteSampleCount += (halfBufferSize / ADC_NUM_CHANNELS);
+ 352:         }
+ 353:     }
+ 354:     while (CmtReadTSQData(dmaQueue, localBuf, 1, 0, 0) > 0) {
+ 355:         if (recordFile) fwrite(localBuf, sizeof(U16), halfBufferSize, recordFile);
+ 356:     }
+ 357:     if (recordFile) fflush(recordFile);
+ 358:     free(localBuf);
+ 359:     return 0;
+ 360: }
+ 361: void CVICALLBACK Overrun_Deferred (void *callbackData) {
+ 362:     int overrunType = (int)(intptr_t)callbackData;
+ 363:     if (overrunType == 1) {
+ 364:         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "HALTED: DMA Queue Full (Disk IO too slow)");
+ 365:     } else {
+ 366:         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "HALTED: Hardware DMA Overrun");
+ 367:     }
+ 368:     AdcStopCB(0, 0, EVENT_COMMIT, NULL, 0, 0);
+ 369: }
+ 370: int CVICALLBACK HardwarePollThreadFunction (void *functionData)
+ 371: {
+ 372:     BOOLEAN halfReady, fStop;
+ 373:     int activeBuf = 0;
+ 374:     int queueStatus;
+ 375:     while (isAcquiring) {
+ 376:         WD_AI_AsyncDblBufferHalfReady(adcCard, &halfReady, &fStop);
+ 377:         if (halfReady) {
+ 378:             U16 *src = (activeBuf == 0) ? dmaBuffer1 : dmaBuffer2;
+ 379:             queueStatus = CmtWriteTSQData(dmaQueue, src, 1, 0, NULL);
+ 380:             if (queueStatus < 0 && isAcquiring) {
+ 381:                 PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, (void*)1);
+ 382:                 break;
+ 383:             }
+ 384:             activeBuf = 1 - activeBuf;
+ 385:             heartbeatCounter++;
+ 386:         }
+ 387:         if (fStop && isAcquiring) {
+ 388:             PostDeferredCall((DeferredCallbackPtr)Overrun_Deferred, (void*)0);
+ 389:             break;
+ 390:         }
+ 391:         Sleep(1);
+ 392:     }
+ 393:     return 0;
+ 394: }
+ 395: void CVICALLBACK ADC_PlotFFT_Deferred (void *callbackData)
+ 396: {
+ 397:     U32 fftN;
+ 398:     int plotN;
+ 399:     int i;
+ 400:     double startF, stopF, bwDDS_Hz, bwTx_Hz, chirpPeriod_s;
+ 401:     double rangePerBin;
+ 402:     if (plotSamples == 0) {
+ 403:         plotBusy = 0;
+ 404:         return;
+ 405:     }
+ 406:     for (i = 0; i < plotSamples; i++) {
+ 407:         double raw0 = (double)((int)plotBuffer[i * ADC_NUM_CHANNELS] - 32768);
+ 408:         double raw1 = (double)((int)plotBuffer[i * ADC_NUM_CHANNELS + 1] - 32768);
+ 409:         timeDataCH0[i] = (raw0 / 32768.0) * currentAdcVoltageLimit;
+ 410:         timeDataCH1[i] = (raw1 / 32768.0) * currentAdcVoltageLimit;
+ 411:     }
+ 412:     DeleteGraphPlot (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, -1, VAL_IMMEDIATE_DRAW);
+ 413:     {
+ 414:         int hT0, hT1;
+ 415:         hT0 = PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, timeDataCH0, plotSamples,
+ 416:                VAL_DOUBLE, VAL_THIN_LINE, VAL_NO_POINT, VAL_SOLID, 1, VAL_YELLOW);
+ 417:         hT1 = PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, timeDataCH1, plotSamples,
+ 418:                VAL_DOUBLE, VAL_THIN_LINE, VAL_NO_POINT, VAL_SOLID, 1, VAL_CYAN);
+ 419:         SetPlotAttribute (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, hT0, ATTR_PLOT_LG_TEXT, "LRX");
+ 420:         SetPlotAttribute (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, hT1, ATTR_PLOT_LG_TEXT, "URX");
+ 421:         SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, ATTR_LEGEND_VISIBLE, 1);
+ 422:     }
+ 423:     ADC_ComputeFFT (plotBuffer, plotSamples, 0, ADC_NUM_CHANNELS, fftMagCH0);
+ 424:     ADC_ComputeFFT (plotBuffer, plotSamples, 1, ADC_NUM_CHANNELS, fftMagCH1);
+ 425:     fftN  = (U32)NextPow2 (plotSamples);
+ 426:     plotN = (int)(fftN / 2);
+ 427:     if (plotN > FFT_MAX_SIZE / 2) plotN = FFT_MAX_SIZE / 2;
+ 428:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_START_FREQ, &startF);
+ 429:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_STOP_FREQ,  &stopF);
+ 430:     bwDDS_Hz = fabs(stopF - startF) * 1e6;
+ 431:     bwTx_Hz  = (double)FREQ_MULTIPLIER * bwDDS_Hz;
+ 432:     chirpPeriod_s = (lastActualPeriod_us > 0.0) ? lastActualPeriod_us * 1e-6 : 1.0;
+ 433:     if (bwTx_Hz > 0.0 && currentAdcSampleRateHz > 0.0) {
+ 434:         rangePerBin = (SPEED_OF_LIGHT * currentAdcSampleRateHz * chirpPeriod_s)
+ 435:                       / (2.0 * (double)fftN * bwTx_Hz);
+ 436:     } else {
+ 437:         rangePerBin = 1.0;
+ 438:     }
+ 439:     for (i = 0; i < plotN; i++) {
+ 440:         rangeAxis[i] = (double)i * rangePerBin;
+ 441:     }
+ 442:     DeleteGraphPlot (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, -1, VAL_IMMEDIATE_DRAW);
+ 443:     {
+ 444:         int hF0, hF1;
+ 445:         hF0 = PlotXY (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, rangeAxis, fftMagCH0, plotN,
+ 446:                 VAL_DOUBLE, VAL_DOUBLE, VAL_THIN_LINE, VAL_NO_POINT, VAL_SOLID, 1, VAL_YELLOW);
+ 447:         hF1 = PlotXY (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, rangeAxis, fftMagCH1, plotN,
+ 448:                 VAL_DOUBLE, VAL_DOUBLE, VAL_THIN_LINE, VAL_NO_POINT, VAL_SOLID, 1, VAL_CYAN);
+ 449:         SetPlotAttribute (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, hF0, ATTR_PLOT_LG_TEXT, "LRX");
+ 450:         SetPlotAttribute (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, hF1, ATTR_PLOT_LG_TEXT, "URX");
+ 451:         SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, ATTR_LEGEND_VISIBLE, 1);
+ 452:         SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, ATTR_XNAME, "Range (m)");
+ 453:         SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, ATTR_YNAME, "Magnitude (dB)");
+ 454:     }
+ 455:     plotBusy = 0;
+ 456: }
+ 457: static void ADC_ComputeFFT (U16 *data, int nSamples, int chOffset, int nCh,
+ 458:                             double *outMag)
+ 459: {
+ 460:     int i, fftN;
+ 461:     fftN = NextPow2 (nSamples);
+ 462:     if (fftN > FFT_MAX_SIZE) fftN = FFT_MAX_SIZE;
+ 463:     memset (fftReal, 0, sizeof(double) * fftN);
+ 464:     memset (fftImag, 0, sizeof(double) * fftN);
+ 465:     for (i = 0; i < nSamples && i < fftN; i++)
+ 466:     {
+ 467:         double raw = (double)((int)data[i * nCh + chOffset] - 32768);
+ 468:         double win = 0.5 * (1.0 - cos(2.0 * PI * (double)i / (double)(nSamples - 1)));
+ 469:         fftReal[i] = raw * win;
+ 470:     }
+ 471:     FFT_Radix2 (fftReal, fftImag, fftN);
+ 472:     for (i = 0; i < fftN / 2; i++)
+ 473:     {
+ 474:         double mag = sqrt (fftReal[i] * fftReal[i] + fftImag[i] * fftImag[i]);
+ 475:         outMag[i] = (mag > 0.0) ? 20.0 * log10(mag) : -200.0;
+ 476:     }
+ 477: }
+ 478: static int ADC_SaveRawFile (const char *path)
+ 479: {
+ 480:     FILE *fp;
+ 481:     RadarFileHeader hdr;
+ 482:     U32 sampPerTrig;
+ 483:     double startF, stopF, period, sampleRate;
+ 484:     if (plotSamples == 0) return -1;
+ 485:     GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &sampPerTrig);
+ 486:     sampleRate = currentAdcSampleRateHz;
+ 487:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_START_FREQ, &startF);
+ 488:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_STOP_FREQ,  &stopF);
+ 489:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_PERIOD,     &period);
+ 490:     memset (&hdr, 0, sizeof(hdr));
+ 491:     hdr.magic               = RADAR_FILE_MAGIC;
+ 492:     hdr.num_channels        = ADC_NUM_CHANNELS;
+ 493:     hdr.samples_per_trigger = plotSamples;
+ 494:     hdr.num_triggers        = 1;
+ 495:     hdr.sample_rate_hz      = sampleRate;
+ 496:     hdr.dds_start_freq_hz   = startF * 1e6;
+ 497:     hdr.dds_stop_freq_hz    = stopF  * 1e6;
+ 498:     hdr.dds_sweep_period_us = period;
+ 499:     fp = fopen (path, "wb");
+ 500:     if (fp == NULL) return -1;
+ 501:     fwrite (&hdr, sizeof(hdr), 1, fp);
+ 502:     fwrite (plotBuffer, sizeof(U16), plotSamples * ADC_NUM_CHANNELS, fp);
+ 503:     fclose (fp);
+ 504:     return 0;
+ 505: }
+ 506: static void ADC_RecordWriteHeader (void)
+ 507: {
+ 508:     RadarFileHeader hdr;
+ 509:     U32 sampPerTrig;
+ 510:     double startF, stopF, period;
+ 511:     if (recordFile == NULL) return;
+ 512:     GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &sampPerTrig);
+ 513:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_START_FREQ, &startF);
+ 514:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_STOP_FREQ,  &stopF);
+ 515:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_PERIOD,      &period);
+ 516:     memset (&hdr, 0, sizeof(hdr));
+ 517:     hdr.magic               = RADAR_FILE_MAGIC;
+ 518:     hdr.num_channels        = ADC_NUM_CHANNELS;
+ 519:     hdr.samples_per_trigger = sampPerTrig;
+ 520:     hdr.num_triggers        = 0;
+ 521:     hdr.sample_rate_hz      = currentAdcSampleRateHz;
+ 522:     hdr.dds_start_freq_hz   = startF * 1e6;
+ 523:     hdr.dds_stop_freq_hz    = stopF  * 1e6;
+ 524:     hdr.dds_sweep_period_us = period;
+ 525:     fwrite (&hdr, sizeof(hdr), 1, recordFile);
+ 526:     fflush (recordFile);
+ 527: }
+ 528: static void ADC_RecordFinish (void)
+ 529: {
+ 530:     if (recordFile == NULL) return;
+ 531:     fseek (recordFile, offsetof(RadarFileHeader, num_triggers), SEEK_SET);
+ 532:     fwrite (&recordedTrigs, sizeof(U32), 1, recordFile);
+ 533:     fclose (recordFile);
+ 534:     recordFile = NULL;
+ 535: }
+ 536: int CVICALLBACK MainPanelCB (int panel, int event, void *cbd, int ed1, int ed2)
+ 537: {
+ 538:     if (event == EVENT_CLOSE) QuitUserInterface (0);
+ 539:     return 0;
+ 540: }
+ 541: int CVICALLBACK RlConnectCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 542: {
+ 543:     int idx;
+ 544:     if (ev != EVENT_COMMIT) return 0;
+ 545:     GetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_RING_RESOURCE, &idx);
+ 546:     if (idx < 0 || idx >= numResources) { MessagePopup("Relay","Select a resource."); return 0; }
+ 547:     if (Relay_Connect (resourceList[idx]) < 0)
+ 548:     { SetCtrlVal(relayTabHandle,RELAY_TAB_RELAY_MSG_STATUS,"Status: FAILED"); return 0; }
+ 549:     SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_MSG_STATUS, "Status: Connected");
+ 550:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_CONNECT,    ATTR_DIMMED, 1);
+ 551:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_DISCONNECT, ATTR_DIMMED, 0);
+ 552:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY1,       ATTR_DIMMED, 0);
+ 553:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY2,       ATTR_DIMMED, 0);
+ 554:     relay1State = relay2State = 0;
+ 555:     SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY1, 0);
+ 556:     SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY2, 0);
+ 557:     return 0;
+ 558: }
+ 559: int CVICALLBACK RlDisconnect (int p, int c, int ev, void *cbd, int e1, int e2)
+ 560: {
+ 561:     if (ev != EVENT_COMMIT) return 0;
+ 562:     Relay_Disconnect ();
+ 563:     SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_MSG_STATUS, "Status: Disconnected");
+ 564:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_CONNECT,    ATTR_DIMMED, 0);
+ 565:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_DISCONNECT, ATTR_DIMMED, 1);
+ 566:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY1,       ATTR_DIMMED, 1);
+ 567:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY2,       ATTR_DIMMED, 1);
+ 568:     SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY1, 0);
+ 569:     SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY2, 0);
+ 570:     return 0;
+ 571: }
+ 572: int CVICALLBACK Rl1CB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 573: {
+ 574:     if (ev != EVENT_COMMIT) return 0;
+ 575:     relay1State = !relay1State;
+ 576:     if (Relay_Set(1,relay1State)<0) { relay1State=!relay1State; return 0; }
+ 577:     SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY1, relay1State);
+ 578:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY1, ATTR_LABEL_TEXT,
+ 579:                       relay1State ? "Relay 1: ON" : "Relay 1: OFF");
+ 580:     return 0;
+ 581: }
+ 582: int CVICALLBACK Rl2CB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 583: {
+ 584:     if (ev != EVENT_COMMIT) return 0;
+ 585:     relay2State = !relay2State;
+ 586:     if (Relay_Set(2,relay2State)<0) { relay2State=!relay2State; return 0; }
+ 587:     SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY2, relay2State);
+ 588:     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY2, ATTR_LABEL_TEXT,
+ 589:                       relay2State ? "Relay 2: ON" : "Relay 2: OFF");
+ 590:     return 0;
+ 591: }
+ 592: int CVICALLBACK RefreshResCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 593: {
+ 594:     if (ev != EVENT_COMMIT) return 0;
+ 595:     ScanVISAResources ();
+ 596:     return 0;
+ 597: }
+ 598: static void SetPSUDimmed (int d)
+ 599: {
+ 600:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_NUM_CH1_VOLT_SET, ATTR_DIMMED, d);
+ 601:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_NUM_CH1_CURR_SET, ATTR_DIMMED, d);
+ 602:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CH1_APPLY,    ATTR_DIMMED, d);
+ 603:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CH1_OUTPUT,   ATTR_DIMMED, d);
+ 604:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_NUM_CH2_VOLT_SET, ATTR_DIMMED, d);
+ 605:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_NUM_CH2_CURR_SET, ATTR_DIMMED, d);
+ 606:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CH2_APPLY,    ATTR_DIMMED, d);
+ 607:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CH2_OUTPUT,   ATTR_DIMMED, d);
+ 608:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CH3_OUTPUT,   ATTR_DIMMED, d);
+ 609:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_ALL_OUTPUT,   ATTR_DIMMED, d);
+ 610: }
+ 611: int CVICALLBACK PsuConnectCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 612: {
+ 613:     int idx; char resp[READ_BUF_LEN];
+ 614:     if (ev != EVENT_COMMIT) return 0;
+ 615:     GetCtrlVal (psuTabHandle, PSU_TAB_PSU_RING_RESOURCE, &idx);
+ 616:     if (idx<0||idx>=numResources) { MessagePopup("PSU","Select a resource."); return 0; }
+ 617:     if (PSU_Connect(resourceList[idx])<0) { SetCtrlVal(psuTabHandle,PSU_TAB_PSU_MSG_STATUS,"Status: FAILED"); return 0; }
+ 618:     if (PSU_Query("*IDN?",resp,sizeof(resp))==0) SetCtrlVal(psuTabHandle,PSU_TAB_PSU_MSG_IDN,resp);
+ 619:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_MSG_STATUS,"Status: Connected");
+ 620:     SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_BTN_CONNECT,ATTR_DIMMED,1);
+ 621:     SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_BTN_DISCONNECT,ATTR_DIMMED,0);
+ 622:     SetPSUDimmed (0);
+ 623:     ch1OutState=ch2OutState=ch3OutState=0;
+ 624:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_LED_CH1_OUTPUT,0);
+ 625:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_LED_CH2_OUTPUT,0);
+ 626:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_LED_CH3_OUTPUT,0);
+ 627:     SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_BTN_ALL_OUTPUT,ATTR_LABEL_TEXT,"ALL OUT: OFF");
+ 628:     SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_TIMER_READBACK,ATTR_ENABLED,1);
+ 629:     return 0;
+ 630: }
+ 631: int CVICALLBACK PsuDisconnect (int p, int c, int ev, void *cbd, int e1, int e2)
+ 632: {
+ 633:     if (ev != EVENT_COMMIT) return 0;
+ 634:     SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_TIMER_READBACK,ATTR_ENABLED,0);
+ 635:     PSU_Disconnect();
+ 636:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_MSG_STATUS,"Status: Disconnected");
+ 637:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_MSG_IDN,"");
+ 638:     SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_BTN_CONNECT,ATTR_DIMMED,0);
+ 639:     SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_BTN_DISCONNECT,ATTR_DIMMED,1);
+ 640:     SetPSUDimmed (1);
+ 641:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_LED_CH1_OUTPUT,0);
+ 642:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_LED_CH2_OUTPUT,0);
+ 643:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_LED_CH3_OUTPUT,0);
+ 644:     SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_BTN_ALL_OUTPUT,ATTR_LABEL_TEXT,"ALL OUT: OFF");
+ 645:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH1_VOLT_READ,0.0);
+ 646:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH1_CURR_READ,0.0);
+ 647:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH1_PWR_READ,0.0);
+ 648:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH2_VOLT_READ,0.0);
+ 649:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH2_CURR_READ,0.0);
+ 650:     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH2_PWR_READ,0.0);
+ 651:     return 0;
+ 652: }
+ 653: int CVICALLBACK CH1ApplyCB (int p,int c,int ev,void*cbd,int e1,int e2)
+ 654: { double v,a; if(ev!=EVENT_COMMIT)return 0;
+ 655:   GetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH1_VOLT_SET,&v);
+ 656:   GetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH1_CURR_SET,&a);
+ 657:   PSU_SetVoltage(1,v); PSU_SetCurrent(1,a); return 0; }
+ 658: int CVICALLBACK CH2ApplyCB (int p,int c,int ev,void*cbd,int e1,int e2)
+ 659: { double v,a; if(ev!=EVENT_COMMIT)return 0;
+ 660:   GetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH2_VOLT_SET,&v);
+ 661:   GetCtrlVal(psuTabHandle,PSU_TAB_PSU_NUM_CH2_CURR_SET,&a);
+ 662:   PSU_SetVoltage(2,v); PSU_SetCurrent(2,a); return 0; }
+ 663: int CVICALLBACK CH1OutCB (int p,int c,int ev,void*cbd,int e1,int e2)
+ 664: { if(ev!=EVENT_COMMIT)return 0; ch1OutState=!ch1OutState; PSU_OutputOnOff(1,ch1OutState);
+ 665:   SetCtrlVal(psuTabHandle,PSU_TAB_PSU_LED_CH1_OUTPUT,ch1OutState);
+ 666:   SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_BTN_CH1_OUTPUT,ATTR_LABEL_TEXT,ch1OutState?"CH1 OUT: ON":"CH1 OUT: OFF"); return 0; }
+ 667: int CVICALLBACK CH2OutCB (int p,int c,int ev,void*cbd,int e1,int e2)
+ 668: { if(ev!=EVENT_COMMIT)return 0; ch2OutState=!ch2OutState; PSU_OutputOnOff(2,ch2OutState);
+ 669:   SetCtrlVal(psuTabHandle,PSU_TAB_PSU_LED_CH2_OUTPUT,ch2OutState);
+ 670:   SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_BTN_CH2_OUTPUT,ATTR_LABEL_TEXT,ch2OutState?"CH2 OUT: ON":"CH2 OUT: OFF"); return 0; }
+ 671: int CVICALLBACK CH3OutCB (int p,int c,int ev,void*cbd,int e1,int e2)
+ 672: { if(ev!=EVENT_COMMIT)return 0; ch3OutState=!ch3OutState; PSU_OutputOnOff(3,ch3OutState);
+ 673:   SetCtrlVal(psuTabHandle,PSU_TAB_PSU_LED_CH3_OUTPUT,ch3OutState);
+ 674:   SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_BTN_CH3_OUTPUT,ATTR_LABEL_TEXT,ch3OutState?"CH3 OUT: ON":"CH3 OUT: OFF"); return 0; }
+ 675: int CVICALLBACK PsuAllOutCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 676: {
+ 677:     int allOn;
+ 678:     if (ev != EVENT_COMMIT) return 0;
+ 679:     allOn = (ch1OutState && ch2OutState && ch3OutState);
+ 680:     if (allOn)
+ 681:     {
+ 682:         ch1OutState = ch2OutState = ch3OutState = 0;
+ 683:         PSU_OutputOnOff (1, 0);
+ 684:         PSU_OutputOnOff (2, 0);
+ 685:         PSU_OutputOnOff (3, 0);
+ 686:     }
+ 687:     else
+ 688:     {
+ 689:         ch1OutState = ch2OutState = ch3OutState = 1;
+ 690:         PSU_OutputOnOff (1, 1);
+ 691:         PSU_OutputOnOff (2, 1);
+ 692:         PSU_OutputOnOff (3, 1);
+ 693:     }
+ 694:     SetCtrlVal (psuTabHandle, PSU_TAB_PSU_LED_CH1_OUTPUT, ch1OutState);
+ 695:     SetCtrlVal (psuTabHandle, PSU_TAB_PSU_LED_CH2_OUTPUT, ch2OutState);
+ 696:     SetCtrlVal (psuTabHandle, PSU_TAB_PSU_LED_CH3_OUTPUT, ch3OutState);
+ 697:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CH1_OUTPUT, ATTR_LABEL_TEXT,
+ 698:                       ch1OutState ? "CH1 OUT: ON" : "CH1 OUT: OFF");
+ 699:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CH2_OUTPUT, ATTR_LABEL_TEXT,
+ 700:                       ch2OutState ? "CH2 OUT: ON" : "CH2 OUT: OFF");
+ 701:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CH3_OUTPUT, ATTR_LABEL_TEXT,
+ 702:                       ch3OutState ? "CH3 OUT: ON" : "CH3 OUT: OFF");
+ 703:     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_ALL_OUTPUT, ATTR_LABEL_TEXT,
+ 704:                       ch1OutState ? "ALL OUT: ON" : "ALL OUT: OFF");
+ 705:     return 0;
+ 706: }
+ 707: int CVICALLBACK ReadbackTimerCB (int p,int c,int ev,void*cbd,int e1,int e2)
+ 708: { if(ev!=EVENT_TIMER_TICK)return 0; if(psuSession!=VI_NULL) PSU_ReadMeasurements(); return 0; }
+ 709: static void DDS_UpdateTimingDisplay (void)
+ 710: {
+ 711:     double clockMHz, syncClkMHz, syncClkPeriod_us;
+ 712:     double adcClkMHz, trigFreqHz, drctrlPeriod_us, deadTime_us, calcPeriod_us;
+ 713:     int    hmcDiv, progDiv, sampsPerChirp;
+ 714:     int    adcClkDivTotal, chirpSteps, drctrlSteps, minProgDiv, deadSamples;
+ 715:     char   warnMsg[256];
+ 716:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CLOCK_MHZ,       &clockMHz);
+ 717:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_HMC_DIV,         &hmcDiv);
+ 718:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_PROG_DIV,        &progDiv);
+ 719:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_SAMPS_PER_CHI, &sampsPerChirp);
+ 720:     if (hmcDiv < 2)         hmcDiv = 2;
+ 721:     if (progDiv < 1)        progDiv = 1;
+ 722:     if (sampsPerChirp < 1)  sampsPerChirp = 1;
+ 723:     syncClkMHz       = clockMHz / 24.0;
+ 724:     syncClkPeriod_us = (syncClkMHz > 0.0) ? 1.0 / syncClkMHz : 0.0;
+ 725:     adcClkDivTotal = hmcDiv * 2;
+ 726:     adcClkMHz      = syncClkMHz / (double)adcClkDivTotal;
+ 727:     currentAdcSampleRateHz = adcClkMHz * 1e6;
+ 728:     chirpSteps    = sampsPerChirp * adcClkDivTotal;
+ 729:     calcPeriod_us = (double)chirpSteps * syncClkPeriod_us;
+ 730:     drctrlSteps     = adcClkDivTotal * progDiv;
+ 731:     trigFreqHz      = (adcClkMHz > 0.0) ? adcClkMHz * 1e6 / (double)progDiv : 0.0;
+ 732:     drctrlPeriod_us = (double)drctrlSteps * syncClkPeriod_us;
+ 733:     deadTime_us = drctrlPeriod_us - lastActualPeriod_us;
+ 734:     deadSamples = progDiv - sampsPerChirp;
+ 735:     minProgDiv  = sampsPerChirp + 1;
+ 736:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_SYNC_CLK,       syncClkMHz);
+ 737:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ADC_CLK,        adcClkMHz);
+ 738:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_TRIG_FREQ,      trigFreqHz);
+ 739:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DRCTRL_PERIOD,  drctrlPeriod_us);
+ 740:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CHIRP_STEPS,    chirpSteps);
+ 741:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CALC_PERIOD,    calcPeriod_us);
+ 742:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DEAD_TIME,      deadTime_us);
+ 743:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DEAD_SAMPLES,   deadSamples);
+ 744:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_MIN_PROG_DIV,   minProgDiv);
+ 745:     warnMsg[0] = '\0';
+ 746:     if (progDiv <= sampsPerChirp)
+ 747:     {
+ 748:         sprintf (warnMsg, "WARNING: Prog divider %d too small! "
+ 749:                  "Need > %d samples/chirp. No dead time!",
+ 750:                  progDiv, sampsPerChirp);
+ 751:     }
+ 752:     else if (deadTime_us < 0.0 && lastActualPeriod_us > 0.0)
+ 753:     {
+ 754:         sprintf (warnMsg, "WARNING: Actual sweep (%.3f us) exceeds "
+ 755:                  "DRCTRL period (%.3f us). Increase prog divider.",
+ 756:                  lastActualPeriod_us, drctrlPeriod_us);
+ 757:     }
+ 758:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_TIMING_WARN, warnMsg);
+ 759: }
+ 760: int CVICALLBACK DdsConnectCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 761: {
+ 762:     char comStr[64];
+ 763:     char fullPort[80];
+ 764:     double clockMHz;
+ 765:     if (ev != EVENT_COMMIT) return 0;
+ 766:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_STR_COM_PORT, comStr);
+ 767:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CLOCK_MHZ, &clockMHz);
+ 768:     sprintf (fullPort, "\\\\.\\%s", comStr);
+ 769:     dds_set_com_port (fullPort);
+ 770:     dds_set_clock (clockMHz * 1e6);
+ 771:     if (!init_dds ())
+ 772:     {
+ 773:         SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Status: Connection FAILED");
+ 774:         return 0;
+ 775:     }
+ 776:     ddsConnected = 1;
+ 777:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Status: Connected");
+ 778:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_CONNECT,    ATTR_DIMMED, 1);
+ 779:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_DISCONNECT, ATTR_DIMMED, 0);
+ 780:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_INIT_CAL,   ATTR_DIMMED, 0);
+ 781:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_START,      ATTR_DIMMED, 0);
+ 782:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_STOP,       ATTR_DIMMED, 1);
+ 783:     return 0;
+ 784: }
+ 785: int CVICALLBACK DdsDisconnectCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 786: {
+ 787:     if (ev != EVENT_COMMIT) return 0;
+ 788:     if (ddsSweepActive) { dds_powerdown (); ddsSweepActive = 0; }
+ 789:     deinit_dds ();
+ 790:     ddsConnected = 0;
+ 791:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Status: Disconnected");
+ 792:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_CONNECT,    ATTR_DIMMED, 0);
+ 793:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_DISCONNECT, ATTR_DIMMED, 1);
+ 794:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_INIT_CAL,   ATTR_DIMMED, 1);
+ 795:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_START,      ATTR_DIMMED, 1);
+ 796:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_STOP,       ATTR_DIMMED, 1);
+ 797:     return 0;
+ 798: }
+ 799: int CVICALLBACK DdsInitCalCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 800: {
+ 801:     if (ev != EVENT_COMMIT) return 0;
+ 802:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Resetting & calibrating...");
+ 803:     ProcessSystemEvents ();
+ 804:     if (!dds_reset ())
+ 805:     { SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Reset FAILED"); return 0; }
+ 806:     if (!ad9914_calibrate_dac ())
+ 807:     { SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "DAC cal FAILED"); return 0; }
+ 808:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Init & calibration OK");
+ 809:     return 0;
+ 810: }
+ 811: int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 812: {
+ 813:     double startF, stopF, period, cwFreq;
+ 814:     double actStart, actStop, actPeriod, actCW;
+ 815:     int    chirpMode;
+ 816:     uint32_t rampFlags;
+ 817:     char   msg[256];
+ 818:     if (ev != EVENT_COMMIT) return 0;
+ 819:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_RING_CHIRP_MODE, &chirpMode);
+ 820:     if (chirpMode == 2)
+ 821:     {
+ 822:         GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CW_FREQ, &cwFreq);
+ 823:         if (!dds_reset ()) { return 0; }
+ 824:         if (!dds_powerup ()) { return 0; }
+ 825:         Delay(0.01);
+ 826:         if (!ad9914_calibrate_dac ()) { return 0; }
+ 827:         if (!ad9914_single_tone (cwFreq, &actCW)) { return 0; }
+ 828:         if (!dds_update ()) { return 0; }
+ 829:         ddsSweepActive = 1;
+ 830:         lastActualPeriod_us = 0.0;
+ 831:         sprintf (msg, "CW output: %.6f MHz (requested %.6f MHz)", actCW, cwFreq);
+ 832:         SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, msg);
+ 833:         SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_START,  actCW);
+ 834:         SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_STOP,   0.0);
+ 835:         SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_PERIOD, 0.0);
+ 836:     }
+ 837:     else
+ 838:     {
+ 839:         GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_START_FREQ, &startF);
+ 840:         GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_STOP_FREQ,  &stopF);
+ 841:         GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_PERIOD,      &period);
+ 842:         if (startF == stopF)
+ 843:         {
+ 844:             SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "ERROR: Start/Stop frequencies cannot match in Sweep Mode");
+ 845:             return 0;
+ 846:         }
+ 847:         if (!dds_reset ()) { return 0; }
+ 848:         if (!dds_powerup ()) { return 0; }
+ 849:         Delay(0.01);
+ 850:         if (!ad9914_calibrate_dac ()) { return 0; }
+ 851:         if (chirpMode == 0)
+ 852:         {
+ 853:             rampFlags = DRG_NO_DWELL_HIGH;
+ 854:             if (!dds_drctrl (0))
+ 855:             {
+ 856:                 SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "DRCTRL config FAILED");
+ 857:                 return 0;
+ 858:             }
+ 859:         }
+ 860:         else
+ 861:         {
+ 862:             rampFlags = DRG_NO_DWELL;
+ 863:         }
+ 864:         if (!ad9914_ramp_generator (startF, stopF, period, rampFlags,
+ 865:                                     &actStart, &actStop, &actPeriod))
+ 866:         {
+ 867:             SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Ramp config FAILED");
+ 868:             return 0;
+ 869:         }
+ 870:         if (!dds_update ()) { return 0; }
+ 871:         ddsSweepActive = 1;
+ 872:         SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_START,  actStart);
+ 873:         SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_STOP,   actStop);
+ 874:         SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_PERIOD, actPeriod);
+ 875:         lastActualPeriod_us = actPeriod;
+ 876:         DDS_UpdateTimingDisplay ();
+ 877:         sprintf (msg, "%s sweep  (%.6f to %.6f MHz, %.3f us)",
+ 878:                  (chirpMode == 0) ? "Triggered" : "Free-run",
+ 879:                  actStart, actStop, actPeriod);
+ 880:         SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, msg);
+ 881:     }
+ 882:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_START, ATTR_DIMMED, 1);
+ 883:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_STOP,  ATTR_DIMMED, 0);
+ 884:     return 0;
+ 885: }
+ 886: int CVICALLBACK DdsStopCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 887: {
+ 888:     if (ev != EVENT_COMMIT) return 0;
+ 889:     dds_powerdown ();
+ 890:     ddsSweepActive = 0;
+ 891:     SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Sweep stopped");
+ 892:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_START, ATTR_DIMMED, 0);
+ 893:     SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_STOP,  ATTR_DIMMED, 1);
+ 894:     return 0;
+ 895: }
+ 896: int CVICALLBACK DdsDivRatioCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 897: {
+ 898:     if (ev != EVENT_COMMIT && ev != EVENT_VAL_CHANGED) return 0;
+ 899:     DDS_UpdateTimingDisplay ();
+ 900:     return 0;
+ 901: }
+ 902: int CVICALLBACK AdcStrictDiagnosticCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 903: {
+ 904:     if (ev != EVENT_COMMIT) return 0;
+ 905:     I16  err;
+ 906:     U16  testCard;
+ 907:     U16  chans[2] = {0, 1};
+ 908:     U16  bufId;
+ 909:     U32  testSamplesPerCh = 2048;
+ 910:     U32  testTotalSamples = testSamplesPerCh * 2 * 2;
+ 911:     U16 *testBuffer = NULL;
+ 912:     BOOLEAN halfReady, stopFlag;
+ 913:     int  buffersProcessed = 0;
+ 914:     SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "DIAG: Registering...");
+ 915:     ProcessSystemEvents();
+ 916:     testCard = WD_Register_Card(PCI_9846H, 0);
+ 917:     if (testCard < 0) {
+ 918:         MessagePopup("DIAG ERROR", "Failed to register card.");
+ 919:         return 0;
+ 920:     }
+ 921:     WD_AI_Config(testCard, WD_IntTimeBase, 0, WD_AI_ADCONVSRC_TimePacer, 0, 1);
+ 922:     WD_AI_CH_Config(testCard, 0, AD_B_1_V);
+ 923:     WD_AI_CH_Config(testCard, 1, AD_B_1_V);
+ 924:     err = WD_AI_Trig_Config(testCard, WD_AI_TRGMOD_POST, WD_AI_TRGSRC_ExtD, WD_AI_TrgPositive, 0, 0.0, 0, 0, 0, 1);
+ 925:     testBuffer = (U16 *)WD_Buffer_Alloc(testCard, testTotalSamples * sizeof(U16));
+ 926:     if (!testBuffer) {
+ 927:         WD_Release_Card(testCard);
+ 928:         MessagePopup("DIAG ERROR", "WD_Buffer_Alloc failed.");
+ 929:         return 0;
+ 930:     }
+ 931:     WD_AI_ContBufferReset(testCard);
+ 932:     err = WD_AI_ContBufferSetup(testCard, testBuffer, testTotalSamples, &bufId);
+ 933:     err = WD_AI_AsyncDblBufferMode(testCard, 1);
+ 934:     SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "DIAG: Waiting for Trigger...");
+ 935:     ProcessSystemEvents();
+ 936:     err = WD_AI_ContReadMultiChannels(testCard, 2, chans, bufId, testSamplesPerCh, 1, 1, ASYNCH_OP);
+ 937:     if (err != NoError) {
+ 938:         char msg[128];
+ 939:         sprintf(msg, "DIAG FAILED at Execution: %d", err);
+ 940:         MessagePopup("IOCTL Error", msg);
+ 941:     } else {
+ 942:         while (buffersProcessed < 4) {
+ 943:             WD_AI_AsyncDblBufferHalfReady(testCard, &halfReady, &stopFlag);
+ 944:             if (halfReady) {
+ 945:                 WD_AI_AsyncDblBufferHandled(testCard);
+ 946:                 buffersProcessed++;
+ 947:                 char msg[64];
+ 948:                 sprintf(msg, "DIAG: Processed Buffer %d/4", buffersProcessed);
+ 949:                 SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+ 950:                 ProcessSystemEvents();
+ 951:             }
+ 952:             if (stopFlag) break;
+ 953:         }
+ 954:         MessagePopup("DIAG SUCCESS", "Hardware successfully streamed 4 half-buffers.");
+ 955:     }
+ 956:     WD_AI_AsyncClear(testCard, NULL, NULL);
+ 957:     WD_AI_AsyncDblBufferMode(testCard, 0);
+ 958:     WD_AI_ContBufferReset(testCard);
+ 959:     WD_Buffer_Free(testCard, testBuffer);
+ 960:     WD_Release_Card(testCard);
+ 961:     SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "DIAG: Complete and Released.");
+ 962:     return 0;
+ 963: }
+ 964: int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 965: {
+ 966:     int cardNum;
+ 967:     if (ev != EVENT_COMMIT) return 0;
+ 968:     GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_CARD_NUM, &cardNum);
+ 969:     adcCard = WD_Register_Card (PCI_9846H, (U16)cardNum);
+ 970:     if (adcCard < 0) {
+ 971:         char msg[128];
+ 972:         sprintf (msg, "Register FAILED (err %d)", adcCard);
+ 973:         SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+ 974:         return 0;
+ 975:     }
+ 976:     WD_AD_Auto_Calibration_ALL(adcCard);
+ 977:     adcRegistered = 1;
+ 978:     SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Card registered & calibrated OK");
+ 979:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_REGISTER,  ATTR_DIMMED, 1);
+ 980:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
+ 981:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
+ 982:     return 0;
+ 983: }
+ 984: int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
+ 985: {
+ 986:     int    rangeIdx, impedIdx, pDiv, i;
+ 987:     U16    adRange, impedance;
+ 988:     I16    err;
+ 989:     char   diagMsg[512];
+ 990:     U32    targetScans, scansPerHalf, adcTotalSamples;
+ 991:     if (ev != EVENT_COMMIT || !adcRegistered) return 0;
+ 992:     GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_RANGE,     &rangeIdx);
+ 993:     GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_IMPEDANCE, &impedIdx);
+ 994:     GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_PROG_DIV,     &pDiv);
+ 995:     adRange = (rangeIdx == 0) ? AD_B_1_V : AD_B_5_V;
+ 996:     currentAdcVoltageLimit = (rangeIdx == 0) ? 1.0 : 5.0;
+ 997:     impedance = (impedIdx == 0) ? IMPEDANCE_50Ohm : IMPEDANCE_HI;
+ 998:     err = WD_AI_Config (adcCard, WD_ExtTimeBase, 1, WD_AI_ADCONVSRC_TimePacer, 0, 1);
+ 999:     if (err != NoError) {
+1000:         sprintf(diagMsg, "AI_Config Error: %d", err);
+1001:         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
+1002:         return 0;
+1003:     }
+1004:     for (i = 0; i < ADC_NUM_CHANNELS; i++) {
+1005:         WD_AI_CH_Config (adcCard, i, adRange);
+1006:         WD_AI_CH_ChangeParam (adcCard, i, AI_IMPEDANCE, impedance);
+1007:     }
+1008:     if (pDiv <= 0) pDiv = 1;
+1009:     samplesPerChirp = 0;
+1010:     GetCtrlVal(adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &samplesPerChirp);
+1011:     if (samplesPerChirp == 0) samplesPerChirp = 1024;
+1012:     targetScans = (U32)(currentAdcSampleRateHz * 0.05);
+1013:     if (targetScans < 8192) targetScans = 8192;
+1014:     scansPerHalf = ((targetScans / pDiv) + 1) * pDiv;
+1015:     halfBufferSize = scansPerHalf * ADC_NUM_CHANNELS;
+1016:     adcTotalSamples = halfBufferSize * 2;
+1017:     if (dmaBuffer1) { WD_Buffer_Free(adcCard, dmaBuffer1); dmaBuffer1 = NULL; }
+1018:     if (dmaBuffer2) { WD_Buffer_Free(adcCard, dmaBuffer2); dmaBuffer2 = NULL; }
+1019:     WD_AI_ContBufferReset(adcCard);
+1020:     dmaBuffer1 = (U16 *)WD_Buffer_Alloc(adcCard, halfBufferSize * sizeof(U16));
+1021:     dmaBuffer2 = (U16 *)WD_Buffer_Alloc(adcCard, halfBufferSize * sizeof(U16));
+1022:     if (!dmaBuffer1 || !dmaBuffer2) {
+1023:         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Memory Allocation Failed");
+1024:         return 0;
+1025:     }
+1026:     err = WD_AI_ContBufferSetup(adcCard, dmaBuffer1, halfBufferSize, &adcBufId);
+1027:     err = WD_AI_ContBufferSetup(adcCard, dmaBuffer2, halfBufferSize, &adcBufId);
+1028:     WD_AI_AsyncDblBufferMode(adcCard, 1);
+1029:     sprintf(diagMsg, "Config OK | Half-Buffer: %lu Samples (~50ms)", (unsigned long)halfBufferSize);
+1030:     SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
+1031:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
+1032:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SINGLE,    ATTR_DIMMED, 0);
+1033:     return 0;
+1034: }
+1035: int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
+1036: {
+1037:     I16 err;
+1038:     U32 totalScansPerCh;
+1039:     if (ev != EVENT_COMMIT || !adcRegistered) return 0;
+1040:     GetCtrlVal(adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &samplesPerChirp);
+1041:     GetCtrlVal(ddsTabHandle, TABPANEL_DDS_NUM_PROG_DIV, &currentProgDiv);
+1042:     absoluteSampleCount = 0;
+1043:     heartbeatCounter = 0;
+1044:     totalScansPerCh = halfBufferSize / ADC_NUM_CHANNELS;
+1045:     WD_AI_ContBufferReset(adcCard);
+1046:     err = WD_AI_Trig_Config(adcCard, WD_AI_TRGMOD_POST, WD_AI_TRGSRC_ExtD,
+1047:                             WD_AI_TrgPositive, 0, 0.0, 0, 0, 0, 1);
+1048:     if (err != NoError) return 0;
+1049:     WD_AI_AsyncDblBufferMode(adcCard, 1);
+1050:     WD_AI_ContBufferSetup(adcCard, dmaBuffer1, halfBufferSize, &adcBufId);
+1051:     WD_AI_ContBufferSetup(adcCard, dmaBuffer2, halfBufferSize, &adcBufId);
+1052:     CmtNewTSQ(20, halfBufferSize * sizeof(U16), OPT_TSQ_DYNAMIC_SIZE, &dmaQueue);
+1053:     isAcquiring = 1;
+1054:     adcRunning = 1;
+1055:     CmtScheduleThreadPoolFunction(DEFAULT_THREAD_POOL_HANDLE, DiskWriterThreadFunction, NULL, &consumerThreadID);
+1056:     CmtScheduleThreadPoolFunction(DEFAULT_THREAD_POOL_HANDLE, HardwarePollThreadFunction, NULL, &producerThreadID);
+1057:     err = WD_AI_ContScanChannels(adcCard, 1, adcBufId, totalScansPerCh, 1, 1, ASYNCH_OP);
+1058:     if (err == NoError) {
+1059:         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Acquisition Armed [Dual-Buffer Polled]");
+1060:         SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+1061:         SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 0);
+1062:     } else {
+1063:         AdcStopCB(0, 0, EVENT_COMMIT, NULL, 0, 0);
+1064:         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Execution Failed");
+1065:     }
+1066:     return 0;
+1067: }
+1068: int CVICALLBACK AdcSingleShotCB (int p, int c, int ev, void *cbd, int e1, int e2)
+1069: {
+1070:     I16 err;
+1071:     U16 chans[2] = {0, 1};
+1072:     U32 totalScans, totalSamples;
+1073:     U16 *diagBuffer = NULL;
+1074:     U16 diagBufId;
+1075:     BOOLEAN bStopped = FALSE;
+1076:     U32 accessCnt = 0;
+1077:     double startT;
+1078:     if (ev != EVENT_COMMIT || !adcRegistered) return 0;
+1079:     GetCtrlVal(adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &samplesPerChirp);
+1080:     if (samplesPerChirp == 0) return 0;
+1081:     totalScans = samplesPerChirp;
+1082:     totalSamples = totalScans * ADC_NUM_CHANNELS;
+1083:     diagBuffer = (U16 *)WD_Buffer_Alloc(adcCard, totalSamples * sizeof(U16));
+1084:     if (!diagBuffer) {
+1085:         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Diag Memory Alloc Failed");
+1086:         return 0;
+1087:     }
+1088:     SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Waiting for Hardware Trigger (Max 5s)...");
+1089:     ProcessSystemEvents();
+1090:     WD_AI_AsyncDblBufferMode(adcCard, 0);
+1091:     WD_AI_ContBufferReset(adcCard);
+1092:     err = WD_AI_ContBufferSetup(adcCard, diagBuffer, totalSamples, &diagBufId);
+1093:     err = WD_AI_Trig_Config(adcCard, WD_AI_TRGMOD_POST, WD_AI_TRGSRC_ExtD,
+1094:                              WD_AI_TrgPositive, 0, 0.0, 0, 0, 0, 1);
+1095:     err = WD_AI_ContReadMultiChannels(adcCard, ADC_NUM_CHANNELS, chans, diagBufId, totalScans, 1, 1, ASYNCH_OP);
+1096:     if (err == NoError) {
+1097:         startT = Timer();
+1098:         while (!bStopped && (Timer() - startT < 5.0)) {
+1099:             WD_AI_AsyncCheck(adcCard, &bStopped, &accessCnt);
+1100:             ProcessSystemEvents();
+1101:             Sleep(10);
+1102:         }
+1103:         if (!bStopped) {
+1104:             WD_AI_AsyncClear(adcCard, &accessCnt, &accessCnt);
+1105:             SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Single-shot TIMEOUT: No Ext Trigger");
+1106:         } else {
+1107:             SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Single-shot captured OK");
+1108:             plotBusy = 1;
+1109:             memcpy(plotBuffer, diagBuffer, totalSamples * sizeof(U16));
+1110:             plotSamples = samplesPerChirp;
+1111:             PostDeferredCall((DeferredCallbackPtr)ADC_PlotFFT_Deferred, NULL);
+1112:             {
+1113:                 int saveChoice = ConfirmPopup("Save Single Shot",
+1114:                     "Save this capture to a binary file for MATLAB post-processing?");
+1115:                 if (saveChoice == 1) {
+1116:                     char savePath[MAX_PATHNAME_LEN];
+1117:                     int sel = FileSelectPopup("", "*.bin", "Binary Data (*.bin)",
+1118:                                               "Save Single-Shot Data",
+1119:                                               VAL_SAVE_BUTTON, 0, 0, 1, 1, savePath);
+1120:                     if (sel != VAL_NO_FILE_SELECTED) {
+1121:                         FILE *fp = fopen(savePath, "wb");
+1122:                         if (fp) {
+1123:                             RadarFileHeader hdr;
+1124:                             double startF, stopF, period;
+1125:                             GetCtrlVal(ddsTabHandle, TABPANEL_DDS_NUM_START_FREQ, &startF);
+1126:                             GetCtrlVal(ddsTabHandle, TABPANEL_DDS_NUM_STOP_FREQ,  &stopF);
+1127:                             GetCtrlVal(ddsTabHandle, TABPANEL_DDS_NUM_PERIOD,      &period);
+1128:                             memset(&hdr, 0, sizeof(hdr));
+1129:                             hdr.magic               = RADAR_FILE_MAGIC;
+1130:                             hdr.num_channels        = ADC_NUM_CHANNELS;
+1131:                             hdr.samples_per_trigger = samplesPerChirp;
+1132:                             hdr.num_triggers        = 1;
+1133:                             hdr.sample_rate_hz      = currentAdcSampleRateHz;
+1134:                             hdr.dds_start_freq_hz   = startF * 1e6;
+1135:                             hdr.dds_stop_freq_hz    = stopF  * 1e6;
+1136:                             hdr.dds_sweep_period_us = period;
+1137:                             fwrite(&hdr, sizeof(hdr), 1, fp);
+1138:                             fwrite(diagBuffer, sizeof(U16), totalSamples, fp);
+1139:                             fclose(fp);
+1140:                             SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Single-shot saved OK");
+1141:                         }
+1142:                     }
+1143:                 }
+1144:             }
+1145:         }
+1146:     } else {
+1147:         char msg[128];
+1148:         sprintf(msg, "Single-shot execution error: %d", err);
+1149:         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+1150:     }
+1151:     WD_AI_ContBufferReset(adcCard);
+1152:     WD_Buffer_Free(adcCard, diagBuffer);
+1153:     return 0;
+1154: }
+1155: int CVICALLBACK AdcStopCB (int p, int c, int ev, void *cbd, int e1, int e2)
+1156: {
+1157:     if (ev != EVENT_COMMIT) return 0;
+1158:     isAcquiring = 0;
+1159:     adcRunning = 0;
+1160:     if (producerThreadID != 0) {
+1161:         CmtWaitForThreadPoolFunctionCompletion(DEFAULT_THREAD_POOL_HANDLE, producerThreadID, 0);
+1162:         CmtReleaseThreadPoolFunctionID(DEFAULT_THREAD_POOL_HANDLE, producerThreadID);
+1163:         producerThreadID = 0;
+1164:     }
+1165:     if (consumerThreadID != 0) {
+1166:         CmtWaitForThreadPoolFunctionCompletion(DEFAULT_THREAD_POOL_HANDLE, consumerThreadID, 0);
+1167:         CmtReleaseThreadPoolFunctionID(DEFAULT_THREAD_POOL_HANDLE, consumerThreadID);
+1168:         consumerThreadID = 0;
+1169:     }
+1170:     if (dmaQueue != 0) {
+1171:         CmtDiscardTSQ(dmaQueue);
+1172:         dmaQueue = 0;
+1173:     }
+1174:     if (adcCard >= 0) {
+1175:         U32 d1, d2;
+1176:         WD_AI_AsyncClear(adcCard, &d1, &d2);
+1177:         WD_AI_AsyncDblBufferMode(adcCard, 0);
+1178:         WD_AI_ContBufferReset(adcCard);
+1179:     }
+1180:     if (recording) {
+1181:         ADC_RecordFinish();
+1182:         recording = 0;
+1183:     }
+1184:     SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Acquisition stopped cleanly");
+1185:     SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
+1186:     SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
+1187:     ADC_PlotFFT_Deferred(NULL);
+1188:     return 0;
+1189: }
+1190: int CVICALLBACK AdcReleaseCB (int p, int c, int ev, void *cbd, int e1, int e2)
+1191: {
+1192:     if (ev != EVENT_COMMIT) return 0;
+1193:     if (isAcquiring || adcRunning || recording) {
+1194:         AdcStopCB(0, 0, EVENT_COMMIT, NULL, 0, 0);
+1195:     }
+1196:     if (dmaBuffer1) {
+1197:         WD_Buffer_Free(adcCard, dmaBuffer1);
+1198:         dmaBuffer1 = NULL;
+1199:     }
+1200:     if (dmaBuffer2) {
+1201:         WD_Buffer_Free(adcCard, dmaBuffer2);
+1202:         dmaBuffer2 = NULL;
+1203:     }
+1204:     if (adcCard >= 0) {
+1205:         WD_AI_ContBufferReset(adcCard);
+1206:         WD_Release_Card(adcCard);
+1207:         adcCard = -1;
+1208:     }
+1209:     adcRegistered = 0;
+1210:     SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Card released");
+1211:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_REGISTER,  ATTR_DIMMED, 0);
+1212:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
+1213:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+1214:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
+1215:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
+1216:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
+1217:     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
+1218:     return 0;
+1219: }
+1220: int CVICALLBACK AdcPollTimerCB (int p, int c, int ev, void *cbd, int e1, int e2) { return 0; }
+1221: int CVICALLBACK AdcSaveCB (int p, int c, int ev, void *cbd, int e1, int e2)
+1222: {
+1223:     char path[MAX_PATHNAME_LEN];
+1224:     int  selected;
+1225:     if (ev != EVENT_COMMIT) return 0;
+1226:     selected = FileSelectPopup ("", "*.rdr", "Radar Data (*.rdr)",
+1227:                                 "Save Raw Acquisition Data",
+1228:                                 VAL_SAVE_BUTTON, 0, 0, 1, 1, path);
+1229:     if (selected == VAL_NO_FILE_SELECTED) return 0;
+1230:     if (ADC_SaveRawFile (path) < 0)
+1231:         MessagePopup ("Save", "Failed to save file.");
+1232:     else
+1233:     {
+1234:         char msg[256];
+1235:         sprintf (msg, "Saved: %s", path);
+1236:         SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+1237:     }
+1238:     return 0;
+1239: }
+1240: int CVICALLBACK AdcRecordCB (int p, int c, int ev, void *cbd, int e1, int e2)
+1241: {
+1242:     if (ev != EVENT_COMMIT) return 0;
+1243:     if (!recording)
+1244:     {
+1245:         char path[MAX_PATHNAME_LEN];
+1246:         int  selected;
+1247:         selected = FileSelectPopup ("", "*.bin", "Binary Data (*.bin)",
+1248:                                     "Choose Recording File",
+1249:                                     VAL_SAVE_BUTTON, 0, 0, 1, 1, path);
+1250:         if (selected == VAL_NO_FILE_SELECTED) return 0;
+1251:         recordFile = fopen (path, "wb");
+1252:         if (recordFile == NULL) return 0;
+1253:         strncpy (recordPath, path, sizeof(recordPath) - 1);
+1254:         recordedTrigs = 0;
+1255:         ADC_RecordWriteHeader ();
+1256:         recording = 1;
+1257:         SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD, ATTR_LABEL_TEXT, "Stop Record");
+1258:         if (!adcRunning) {
+1259:             AdcStartCB(0, 0, EVENT_COMMIT, NULL, 0, 0);
+1260:         }
+1261:         SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Recording...");
+1262:     }
+1263:     else
+1264:     {
+1265:         char msg[256];
+1266:         recording = 0;
+1267:         ADC_RecordFinish ();
+1268:         sprintf (msg, "Recording stopped. %lu triggers saved.", (unsigned long)recordedTrigs);
+1269:         SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+1270:         SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD, ATTR_LABEL_TEXT, "Record");
+1271:     }
+1272:     return 0;
+1273: }
+</file>
+
+<file path="TASKS.md">
+ 1: # CerberusControl Implementation Progress
+ 2: - [x] Phase 1: Initialize Git and .gitignore (Completed)
+ 3: - [x] Phase 2: Review all ADC handling including double buffer setup in main code
+ 4: - [x] Phase 3: Review and understand EXAMPLE_DBCODE_PostExtTrg.c which contains the correct manufacturer methods to set up the ADC and save double buffered data
+ 5: - [x] Phase 4: Replace all ADC functionality with learnt methods from EXAMPLE_DBCODE_PostExtTrg.c
+ 6: - [x] Phase 5: Refactor and remove code debt from overall control software
+ 7: - [ ] Phase 6: Review and single shot functionality and compatability with other double buffer setup
+ 8: - [ ] Phase 7: Review and tag for removal ADC Diagnostic button function
+ 9: - [ ] Phase 8: Review safe thread queuing, remove saving but just allow quick plotting of data from acquisition 
+10: - [ ] Phase 9: Ensure logic of code in initalize -> run config -> initilize -> continuous or single shot acquisition -> relesae works without errors, catching fatal or memory locking errors
+</file>
+
+</files>
