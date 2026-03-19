@@ -114,6 +114,14 @@ static U32    bufferCopiesDropped     = 0;    /* Diagnostic: count of missed enq
 static U32    maxQueueDepthObserved   = 0;    /* Diagnostic: peak queue depth in session */
 static U32    lastSessionMaxDepth     = 0;    /* Remember peak from previous session for adaptive sizing */
 static volatile U32 currentQueueDepth = 0;    /* Manual counter: items currently in queue */
+#define BATCH_SIZE 4                    /* Accumulate 4 dequeued buffers before write */
+#define FLUSH_INTERVAL_BLOCKS 100       /* Flush every 100 accumulated blocks */
+#define FLUSH_INTERVAL_MS 2000          /* Or every 2 seconds, whichever comes first */
+typedef struct {
+    U16 *buffer;
+    U32 size;
+} BufferSlot;
+
 
 /* ---- FFT scratch ---- */
 static double fftReal[FFT_MAX_SIZE];
@@ -179,7 +187,7 @@ static void FFT_Radix2       (double *re, double *im, int n);
 static int  NextPow2         (int v);
 
 /* Forward declarations for new functions */
-int  CVICALLBACK DiskWriterThreadFunction (void *functionData);
+int  CVICALLBACK DiskWriterThreadFunction_Optimized (void *functionData);
 int  CVICALLBACK HardwarePollThreadFunction (void *functionData);
 void CVICALLBACK ADC_PlotFFT_Deferred (void *callbackData);
 void CVICALLBACK Overrun_Deferred (void *callbackData);
@@ -452,76 +460,104 @@ static void FFT_Radix2 (double *re, double *im, int n)
 /*===========================================================================
  * THREAD 1: Background Disk Writer (Consumer)
  *===========================================================================*/
-int CVICALLBACK DiskWriterThreadFunction (void *functionData)
+int CVICALLBACK DiskWriterThreadFunction_Optimized (void *functionData)
 {
-    U16 *queueBuffer = malloc(halfBufferSize * sizeof(U16));
-    static int writeCounter = 0;
+    /* Allocate batch storage */
+    BufferSlot batch[BATCH_SIZE];
+    for (int i = 0; i < BATCH_SIZE; i++) {
+        batch[i].buffer = (U16*)malloc(halfBufferSize * sizeof(U16));
+        if (!batch[i].buffer) return -1;
+        batch[i].size = halfBufferSize;
+    }
     
-    if (!queueBuffer) return -1;
-
+    U32 buffersInBatch = 0;
+    U32 totalWriteCount = 0;
+    time_t lastFlushTime = time(NULL);
+    
     while (isAcquiring) {
-        /* Read copied buffer data from queue (waits up to 100ms) */
+        /* Attempt to read from queue (100ms timeout) */
+        U16 *queueBuffer = (U16*)malloc(halfBufferSize * sizeof(U16));
+        if (!queueBuffer) break;
+        
         int itemsRead = CmtReadTSQData(dmaQueue, queueBuffer, 1, 100, 0);
         
         if (itemsRead > 0) {
-            /* ---- Decrement queue depth counter on successful dequeue ---- */
+            /* Successfully dequeued a buffer */
             if (currentQueueDepth > 0) {
                 currentQueueDepth--;
             }
             
-            /* ---- Disk Write ---- */
-            if (recordFile != NULL) {
-                fwrite(queueBuffer, sizeof(U16), halfBufferSize, recordFile);
-                recordedTrigs += (halfBufferSize / ADC_NUM_CHANNELS) / samplesPerChirp;
-                writeCounter++;
+            /* Add to batch */
+            memcpy(batch[buffersInBatch].buffer, queueBuffer, halfBufferSize * sizeof(U16));
+            buffersInBatch++;
+            
+            /* Check if batch is full or flush interval exceeded */
+            int shouldFlush = 0;
+            if (buffersInBatch >= BATCH_SIZE) {
+                shouldFlush = 1;
+            } else if (buffersInBatch > 0) {
+                time_t currentTime = time(NULL);
+                if (difftime(currentTime, lastFlushTime) >= (FLUSH_INTERVAL_MS / 1000.0)) {
+                    shouldFlush = 1;  /* Time-based flush */
+                }
+            }
+            
+            /* Write entire batch to disk */
+            if (shouldFlush && recordFile != NULL) {
+                for (U32 j = 0; j < buffersInBatch; j++) {
+                    size_t written = fwrite(batch[j].buffer, sizeof(U16), 
+                                           halfBufferSize, recordFile);
+                    if (written != halfBufferSize) {
+                        /* Disk write error - log and continue */
+                        fprintf(stderr, "DISK_WRITE_ERROR: Expected %u items, wrote %zu\n",
+                               halfBufferSize, written);
+                    }
+                }
                 
-                /* Periodic flush to prevent massive I/O spike at end */
-                if (writeCounter % 10 == 0) {
-                    fflush(recordFile);
+                /* Single fflush for entire batch */
+                fflush(recordFile);
+                lastFlushTime = time(NULL);
+                totalWriteCount++;
+                
+                /* Update UI status every 10 batches (every ~40 buffers) */
+                if (totalWriteCount % 10 == 0) {
                     char msg[64];
-                    sprintf(msg, "Write: %d blocks", writeCounter);
+                    sprintf(msg, "Write: %u batches (%u buf)", totalWriteCount, 
+                           totalWriteCount * buffersInBatch);
                     SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
                 }
+                
+                /* Update trigger count */
+                if (samplesPerChirp > 0)
+                    recordedTrigs += (buffersInBatch * halfBufferSize / ADC_NUM_CHANNELS) / samplesPerChirp;
+                
+                /* Reset batch */
+                buffersInBatch = 0;
             }
-
-            /* ---- Plotting: Extract last complete chirp for FFT ---- */
-            /* For continuous operation, extract a chirp every N buffers based on trigger count.
-               If no explicit chirp samples are set, fall back to plotting the entire half-buffer. */
-            if (!plotBusy && (samplesPerChirp > 0 || halfBufferSize > 0)) {
-                U32 plotSize = samplesPerChirp;
-                
-                /* Fallback: if samplesPerChirp not set, use entire half-buffer */
-                if (plotSize == 0) {
-                    plotSize = halfBufferSize / ADC_NUM_CHANNELS;
-                }
-                
-                /* Ensure we don't exceed buffer bounds */
-                if (plotSize > halfBufferSize / ADC_NUM_CHANNELS) {
-                    plotSize = halfBufferSize / ADC_NUM_CHANNELS;
-                }
-                
-                plotBusy = 1;
-                memcpy(plotBuffer, queueBuffer, plotSize * ADC_NUM_CHANNELS * sizeof(U16));
-                plotSamples = plotSize;
-                PostDeferredCall((DeferredCallbackPtr)ADC_PlotFFT_Deferred, NULL);
-            }
-            absoluteSampleCount += (halfBufferSize / ADC_NUM_CHANNELS);
         }
+        
+        free(queueBuffer);
     }
-
-    /* Flush queue on termination to capture remaining data */
-    while (CmtReadTSQData(dmaQueue, queueBuffer, 1, 0, 0) > 0) {
-        if (currentQueueDepth > 0) {
-            currentQueueDepth--;
+    
+    /* Flush any remaining partial batch on shutdown */
+    if (buffersInBatch > 0 && recordFile != NULL) {
+        for (U32 j = 0; j < buffersInBatch; j++) {
+            fwrite(batch[j].buffer, sizeof(U16), halfBufferSize, recordFile);
         }
-        if (recordFile) {
-            fwrite(queueBuffer, sizeof(U16), halfBufferSize, recordFile);
-            fflush(recordFile);
-        }
+        fflush(recordFile);
     }
-
-    if (recordFile) fflush(recordFile);
-    free(queueBuffer);
+    
+    /* Final stats before exit */
+    char finalMsg[128];
+    sprintf(finalMsg, "Write complete: %u batches, %u total samples",
+           totalWriteCount, totalWriteCount * BATCH_SIZE * (halfBufferSize / ADC_NUM_CHANNELS));
+    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, finalMsg);
+    
+    /* Cleanup */
+    for (int i = 0; i < BATCH_SIZE; i++) {
+        if (batch[i].buffer) free(batch[i].buffer);
+    }
+    
     return 0;
 }
 
@@ -602,6 +638,23 @@ int CVICALLBACK HardwarePollThreadFunction (void *functionData)
                 WD_AI_AsyncDblBufferHandled(adcCard);
                 activeBuf = 1 - activeBuf;
                 heartbeatCounter++;
+
+                /* ---- Throttled live plot update ---- */
+                /* Fire every 4th half-buffer. plotBusy guards against queuing a second
+                   deferred call before the UI thread has finished the previous render.
+                   Only copy one chirp (samplesPerChirp * nCh samples) — plotBuffer is
+                   sized for FFT_MAX_SIZE * 2 elements, not the full half-buffer. */
+                if (!plotBusy &&
+                    (heartbeatCounter % 4) == 0 &&
+                    samplesPerChirp > 0 &&
+                    samplesPerChirp <= FFT_MAX_SIZE)
+                {
+                    U32 plotLen = samplesPerChirp * ADC_NUM_CHANNELS;
+                    plotBusy = 1;
+                    memcpy(plotBuffer, bufferCopy, plotLen * sizeof(U16));
+                    plotSamples = (int)samplesPerChirp;
+                    PostDeferredCall((DeferredCallbackPtr)ADC_PlotFFT_Deferred, NULL);
+                }
             }
         }
         
@@ -1346,90 +1399,90 @@ int CVICALLBACK DdsDivRatioCB (int p, int c, int ev, void *cbd, int e1, int e2)
 /*===========================================================================
  *  CALLBACKS  -  ADC TAB
  *===========================================================================*/
-int CVICALLBACK AdcStrictDiagnosticCB (int p, int c, int ev, void *cbd, int e1, int e2)
-{
-    if (ev != EVENT_COMMIT) return 0;
+//int CVICALLBACK AdcStrictDiagnosticCB (int p, int c, int ev, void *cbd, int e1, int e2) REMOVED FOR LACK OF CURRENT NEED
+//{
+//    if (ev != EVENT_COMMIT) return 0;
 
-    I16  err;
-    U16  testCard;
-    U16  chans[2] = {0, 1};
-    U16  bufId;
-    U32  testSamplesPerCh = 2048; /* Small, safe, aligned even integer */
-    U32  testTotalSamples = testSamplesPerCh * 2 * 2; /* 2 channels, 2 half-buffers */
-    U16 *testBuffer = NULL;
-    BOOLEAN halfReady, stopFlag;
-    int  buffersProcessed = 0;
+//    I16  err;
+//    U16  testCard;
+//    U16  chans[2] = {0, 1};
+//    U16  bufId;
+//    U32  testSamplesPerCh = 2048; /* Small, safe, aligned even integer */
+//    U32  testTotalSamples = testSamplesPerCh * 2 * 2; /* 2 channels, 2 half-buffers */
+//    U16 *testBuffer = NULL;
+//    BOOLEAN halfReady, stopFlag;
+//    int  buffersProcessed = 0;
 
-    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "DIAG: Registering...");
-    ProcessSystemEvents();
+//    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "DIAG: Registering...");
+//    ProcessSystemEvents();
 
-    /* 1. Pristine Registration */
-    testCard = WD_Register_Card(PCI_9846H, 0);
-    if (testCard < 0) {
-        MessagePopup("DIAG ERROR", "Failed to register card.");
-        return 0;
-    }
+//    /* 1. Pristine Registration */
+//    testCard = WD_Register_Card(PCI_9846H, 0);
+//    if (testCard < 0) {
+//        MessagePopup("DIAG ERROR", "Failed to register card.");
+//        return 0;
+//    }
 
-    /* 2. Strict Configuration */
-    WD_AI_Config(testCard, WD_IntTimeBase, 0, WD_AI_ADCONVSRC_TimePacer, 0, 1);
-    WD_AI_CH_Config(testCard, 0, AD_B_1_V);
-    WD_AI_CH_Config(testCard, 1, AD_B_1_V);
+//    /* 2. Strict Configuration */
+//    WD_AI_Config(testCard, WD_IntTimeBase, 0, WD_AI_ADCONVSRC_TimePacer, 0, 1);
+//    WD_AI_CH_Config(testCard, 0, AD_B_1_V);
+//    WD_AI_CH_Config(testCard, 1, AD_B_1_V);
 
-    /* 3. Trigger: External Digital, Infinite continuous */
-    err = WD_AI_Trig_Config(testCard, WD_AI_TRGMOD_POST, WD_AI_TRGSRC_ExtD, WD_AI_TrgPositive, 0, 0.0, 0, 0, 0, 1);
-    
-    /* 4. Memory Allocation (Kernel Aligned) */
-    testBuffer = (U16 *)WD_Buffer_Alloc(testCard, testTotalSamples * sizeof(U16));
-    if (!testBuffer) {
-        WD_Release_Card(testCard);
-        MessagePopup("DIAG ERROR", "WD_Buffer_Alloc failed.");
-        return 0;
-    }
+//    /* 3. Trigger: External Digital, Infinite continuous */
+//    err = WD_AI_Trig_Config(testCard, WD_AI_TRGMOD_POST, WD_AI_TRGSRC_ExtD, WD_AI_TrgPositive, 0, 0.0, 0, 0, 0, 1);
+//    
+//    /* 4. Memory Allocation (Kernel Aligned) */
+//    testBuffer = (U16 *)WD_Buffer_Alloc(testCard, testTotalSamples * sizeof(U16));
+//    if (!testBuffer) {
+//        WD_Release_Card(testCard);
+//        MessagePopup("DIAG ERROR", "WD_Buffer_Alloc failed.");
+//        return 0;
+//    }
 
-    WD_AI_ContBufferReset(testCard);
-    err = WD_AI_ContBufferSetup(testCard, testBuffer, testTotalSamples, &bufId);
+//    WD_AI_ContBufferReset(testCard);
+//    err = WD_AI_ContBufferSetup(testCard, testBuffer, testTotalSamples, &bufId);
 
-    /* 5. Enable Standard Double Buffering */
-    err = WD_AI_AsyncDblBufferMode(testCard, 1);
+//    /* 5. Enable Standard Double Buffering */
+//    err = WD_AI_AsyncDblBufferMode(testCard, 1);
 
-    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "DIAG: Waiting for Trigger...");
-    ProcessSystemEvents();
+//    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "DIAG: Waiting for Trigger...");
+//    ProcessSystemEvents();
 
-    /* 6. Execute MultiChannel Read */
-    err = WD_AI_ContReadMultiChannels(testCard, 2, chans, bufId, testSamplesPerCh, 1, 1, ASYNCH_OP);
-    
-    if (err != NoError) {
-        char msg[128];
-        sprintf(msg, "DIAG FAILED at Execution: %d", err);
-        MessagePopup("IOCTL Error", msg);
-    } else {
-        /* 7. Polled Hardware Interrupt Loop (Bypasses Threading) */
-        while (buffersProcessed < 4) {
-            WD_AI_AsyncDblBufferHalfReady(testCard, &halfReady, &stopFlag);
-            if (halfReady) {
-                WD_AI_AsyncDblBufferHandled(testCard);
-                buffersProcessed++;
-                
-                char msg[64];
-                sprintf(msg, "DIAG: Processed Buffer %d/4", buffersProcessed);
-                SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
-                ProcessSystemEvents();
-            }
-            if (stopFlag) break;
-        }
-        MessagePopup("DIAG SUCCESS", "Hardware successfully streamed 4 half-buffers.");
-    }
+//    /* 6. Execute MultiChannel Read */
+//    err = WD_AI_ContReadMultiChannels(testCard, 2, chans, bufId, testSamplesPerCh, 1, 1, ASYNCH_OP);
+//    
+//    if (err != NoError) {
+//        char msg[128];
+//        sprintf(msg, "DIAG FAILED at Execution: %d", err);
+//        MessagePopup("IOCTL Error", msg);
+//    } else {
+//        /* 7. Polled Hardware Interrupt Loop (Bypasses Threading) */
+//        while (buffersProcessed < 4) {
+//            WD_AI_AsyncDblBufferHalfReady(testCard, &halfReady, &stopFlag);
+//            if (halfReady) {
+//                WD_AI_AsyncDblBufferHandled(testCard);
+//                buffersProcessed++;
+//                
+//                char msg[64];
+//                sprintf(msg, "DIAG: Processed Buffer %d/4", buffersProcessed);
+//                SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+//                ProcessSystemEvents();
+//            }
+//            if (stopFlag) break;
+//        }
+//        MessagePopup("DIAG SUCCESS", "Hardware successfully streamed 4 half-buffers.");
+//    }
 
-    /* 8. Mandatory Teardown */
-    WD_AI_AsyncClear(testCard, NULL, NULL);
-    WD_AI_AsyncDblBufferMode(testCard, 0);
-    WD_AI_ContBufferReset(testCard);
-    WD_Buffer_Free(testCard, testBuffer);
-    WD_Release_Card(testCard);
+//    /* 8. Mandatory Teardown */
+//    WD_AI_AsyncClear(testCard, NULL, NULL);
+//    WD_AI_AsyncDblBufferMode(testCard, 0);
+//    WD_AI_ContBufferReset(testCard);
+//    WD_Buffer_Free(testCard, testBuffer);
+//    WD_Release_Card(testCard);
 
-    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "DIAG: Complete and Released.");
-    return 0;
-}
+//    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "DIAG: Complete and Released.");
+//    return 0;
+//}
 
 int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
@@ -1512,14 +1565,15 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
 
     /* ---- DYNAMIC BUFFER SIZING: Adaptive Based on Previous Session ---- */
     /* Target 50ms of data per half-buffer, but increase margin if previous session had issues */
-    targetScans = (U32)(currentAdcSampleRateHz * 0.05);
-    if (targetScans < 8192) targetScans = 8192;
+   /* targetScans = (U32)(currentAdcSampleRateHz * 0.05); // This value is far too small with * 0.05*/
+    targetScans = (U32)(6710080/4); //big number ish
+    // if (targetScans < 8192*1024 ) targetScans = 8192*1024 ; // This is like a chirp count, but is setting the SAMPLES amount currently, so needs to be much bigger
     
     /* If previous session hit overruns or high queue depth, add margin */
     if (bufferCopiesDropped > 0 || lastSessionMaxDepth > queueHighWater) {
         /* Increase buffer by 10% to reduce overrun risk */
-        targetScans = (U32)(targetScans * 1.1);
-        sprintf(diagMsg, "Adaptive: Buffer scaled +10%% due to previous overrun. New target: %lu scans", (unsigned long)targetScans);
+        targetScans = (U32)(targetScans * 2);
+        sprintf(diagMsg, "Adaptive: Buffer scaled +100%% due to previous overrun. New target: %lu scans", (unsigned long)targetScans);
         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
     }
     
@@ -1539,11 +1593,27 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Memory Allocation Failed");
         return 0;
     }
+	
+	/* PostTrigScans MUST be 0 for POST trigger mode */
+    err = WD_AI_Trig_Config(adcCard, WD_AI_TRGMOD_POST, WD_AI_TRGSRC_ExtD,
+                            WD_AI_TrgPositive, 0, 0.0, 0, 0, 0, 1);
+    if (err != NoError) return 0;
+	
+ 	WD_AI_AsyncDblBufferMode(adcCard, 1); //Moved BEFORE both buffers setup!
 
     err = WD_AI_ContBufferSetup(adcCard, dmaBuffer1, halfBufferSize, &adcBufId);
+	if (err!=0) {
+       printf("WD_AI_ContBufferSetup 1 error=%d", err);
+       exit(1);
+    }
+	
     err = WD_AI_ContBufferSetup(adcCard, dmaBuffer2, halfBufferSize, &adcBufId);
-    WD_AI_AsyncDblBufferMode(adcCard, 1);
-
+		if (err!=0) {
+       printf("WD_AI_ContBufferSetup 2 error=%d", err);
+       exit(1);
+    }
+	
+   
     sprintf(diagMsg, "Config OK | Half-Buffer: %lu Samples (~50ms)", (unsigned long)halfBufferSize);
     SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
     
@@ -1569,8 +1639,15 @@ int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
        The hardware will cycle these buffers indefinitely until user stops acquisition. */
     totalScansPerCh = halfBufferSize / ADC_NUM_CHANNELS;
 
-    WD_AI_ContBufferReset(adcCard);
+    WD_AI_ContBufferReset(adcCard); // Useful, but does this then need the AI config redoing...?
 
+	err = WD_AI_Config (adcCard, WD_ExtTimeBase, 1, WD_AI_ADCONVSRC_TimePacer, 0, 1); //Moved here, can we delete from the previous one!?
+    if (err != NoError) {
+        sprintf(diagMsg, "AI_Config Error: %d", err);
+        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
+        return 0;
+    }
+	
     /* PostTrigScans MUST be 0 for POST trigger mode */
     err = WD_AI_Trig_Config(adcCard, WD_AI_TRGMOD_POST, WD_AI_TRGSRC_ExtD,
                             WD_AI_TrgPositive, 0, 0.0, 0, 0, 0, 1);
@@ -1604,7 +1681,7 @@ int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
     CmtNewTSQ(queueMaxCapacity, halfBufferSize * sizeof(U16), OPT_TSQ_DYNAMIC_SIZE, &dmaQueue);
     isAcquiring = 1;
     adcRunning = 1;
-    CmtScheduleThreadPoolFunction(DEFAULT_THREAD_POOL_HANDLE, DiskWriterThreadFunction, NULL, &consumerThreadID);
+    CmtScheduleThreadPoolFunction(DEFAULT_THREAD_POOL_HANDLE, DiskWriterThreadFunction_Optimized, NULL, &consumerThreadID);
     CmtScheduleThreadPoolFunction(DEFAULT_THREAD_POOL_HANDLE, HardwarePollThreadFunction, NULL, &producerThreadID);
 
     /* Arm hardware with totalScansPerCh mapping to the hardware DataCnt register */

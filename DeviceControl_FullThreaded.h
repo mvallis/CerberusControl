@@ -111,7 +111,6 @@
 #define  TABPANEL_2_ADC_MSG_STATUS        19      /* control type: textMsg, callback function: (none) */
 #define  TABPANEL_2_ADC_BTN_RECORD        20      /* control type: command, callback function: AdcRecordCB */
 #define  TABPANEL_2_ADC_TIMER_POLL        21      /* control type: timer, callback function: AdcPollTimerCB */
-#define  TABPANEL_2_STRICTDIAGNOSTIC      22      /* control type: command, callback function: AdcStrictDiagnosticCB */
 
 
      /* Control Arrays: */
@@ -135,7 +134,6 @@ int  CVICALLBACK AdcSaveCB(int panel, int control, int event, void *callbackData
 int  CVICALLBACK AdcSingleShotCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK AdcStartCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK AdcStopCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
-int  CVICALLBACK AdcStrictDiagnosticCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK CH1ApplyCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK CH1OutCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK CH2ApplyCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);

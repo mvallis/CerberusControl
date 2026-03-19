@@ -1,18 +1,23 @@
 #include <windows.h>
-#include <ansi_c.h>
+#include "ansi_c.h"
 #include <stdio.h>
 #include "wd-dask.h"
 #include "wddaskex.h"
 
+/* Link WD-DASK library */
+#pragma comment(lib, "WD-Dask.lib")
+
 #define CHANNELNUMBER 0
-#define SCANCOUNT     6710880
-#define TIMEBASE      WD_IntTimeBase
-#define BUFAUTORESET   1
+#define SCANCOUNT     2000 // half buffer size in effect. Should be a large -ish number, any particular multiple rather than 2 (e.g. 8?)
+#define TIMEBASE      WD_ExtTimeBase // Now external timebase for testing
+#define BUFAUTORESET   1 
 #define ADCONVERTSRC  WD_AI_ADCONVSRC_TimePacer
 #define ADTRIGSRC     WD_AI_TRGSRC_ExtD
 #define ADTRIGMODE    WD_AI_TRGMOD_POST
 #define ADTRIGPOL     WD_AI_TrgNegative
-#define SCAN_INTERVAL 40
+#define SCAN_INTERVAL  1 // Set to not divide the timebase for intervals, or should this in fact be > 1, e.g. 2000 or 1024??
+// e.g. if the trigger is 4 Hz, and the sample rate is 1 MHz, there should be some number of division so that each trigger results in multiple samples?
+#define SAMPLE_INTERVAL  1 // Set to not divide timebase by any amount so just equal = 1
 
 
 U16 ai_buf[SCANCOUNT];
@@ -22,15 +27,58 @@ I16 card;
 U16 ai_range=0;
 DAS_IOT_DEV_PROP cardProp;
 
+/* ===== Card Reset & Recovery Function ===== */
+I16 ResetCard(I16 card_handle) {
+    I16 err = 0;
+    U32 dummy_count = 0, dummy_pos = 0;
+    
+    if (card_handle < 0) {
+        printf("Card handle invalid, skipping reset\n");
+        return -1;
+    }
+    
+    printf("Resetting card state...\n");
+    
+    /* Step 1: Clear any pending async operations */
+    err = WD_AI_AsyncClear(card_handle, &dummy_pos, &dummy_count);
+    if (err != NoError) {
+        fprintf(stderr, "AsyncClear error=%d\n", err);
+    }
+    
+    /* Step 2: Release buffers (if any are registered) */
+    WD_AI_ContBufferReset(card_handle);
+    
+    /* Step 3: Reconfigure from scratch */
+    err = WD_AI_Config(card_handle, TIMEBASE, 1, WD_AI_ADCONVSRC_TimePacer, 0, BUFAUTORESET);
+    if (err != NoError) {
+        fprintf(stderr, "AI_Config error=%d\n", err);
+        return err;
+    }
+    
+    err = WD_AI_Trig_Config(card_handle, ADTRIGMODE, ADTRIGSRC, ADTRIGPOL, 0, 0.0, 0, 0, 0, 1);
+    if (err != NoError) {
+        fprintf(stderr, "Trig_Config error=%d\n", err);
+        return err;
+    }
+    
+    err = WD_AI_AsyncDblBufferMode(card_handle, 1);
+    if (err != NoError) {
+        fprintf(stderr, "AsyncDblBufferMode error=%d\n", err);
+        return err;
+    }
+    
+    printf("Card reset complete\n");
+    return 0;
+}
+
 void write_to_file( U16 *buf, U32 write_count )
 {
-  U32 i;
-  F64 vol = 0.0;
-  
-  for(i=0; i<write_count; i++) {
-	WD_AI_VoltScale (card, ai_range, buf[i], &vol);
-    fprintf( svfile, "0x%04x(%4.2fV)\n", (U16) (buf[i] & cardProp.mask), vol);
+  /* Binary write: much faster than fprintf (10-100x improvement) */
+  size_t written = fwrite(buf, sizeof(U16), write_count, svfile);
+  if (written != write_count) {
+    fprintf(stderr, "Write error: expected %u items, wrote %zu\n", write_count, written);
   }
+  fflush(svfile);
 }
 
 /* Windows Console API replacement for conio.h kbhit() */
@@ -86,6 +134,11 @@ int main(void)
         printf("Register_Card error=%d", card);
         exit(1);
     }
+	/* Perform startup reset to clear any residual card state */
+	printf("Performing startup card reset...\n");
+	ResetCard(card);
+	printf("Startup reset complete. Proceeding with initialization.\n\n");
+	
 	WD_GetDeviceProperties (card, 0, &cardProp);
 	ai_range = cardProp.default_range;
 	err = WD_AI_CH_Config (card, CHANNELNUMBER, ai_range);
@@ -109,14 +162,26 @@ int main(void)
        exit(1);
     }
 	if(fok) {
-		svfile = fopen("DmaData.dat", "w");
-		fprintf( svfile, "CH%d :\n", CHANNELNUMBER);
+		svfile = fopen("DmaData.dat", "wb");  /* Open in binary mode */
+		/* Write simple header: channel number as U16 */
+		U16 header = (U16)CHANNELNUMBER;
+		fwrite(&header, sizeof(U16), 1, svfile);
 	}
 	err=WD_AI_ContBufferSetup (card, ai_buf, SCANCOUNT, &Id);
+	if (err != NoError) {
+		printf("ContBufferSetup error (buf1)=%d\n", err);
+		exit(1);
+	}
 	err=WD_AI_ContBufferSetup (card, ai_buf2, SCANCOUNT, &Id);
-    err = WD_AI_ContReadChannel (card, CHANNELNUMBER, Id, SCANCOUNT, SCAN_INTERVAL, SCAN_INTERVAL, ASYNCH_OP);
+	if (err != NoError) {
+		printf("ContBufferSetup error (buf2)=%d\n", err);
+		exit(1);
+	}
+    err = WD_AI_ContReadChannel (card, CHANNELNUMBER, 0, SCANCOUNT, SCAN_INTERVAL, SAMPLE_INTERVAL, ASYNCH_OP);
     if (err!=0) {
-       printf("WD_AI_ContReadChannel error=%d", err);
+       printf("WD_AI_ContReadChannel error=%d\n", err);
+       printf("Attempting card reset...\n");
+       ResetCard(card);
        exit(1);
     }
     printf("\n\n\nStart Data Conversion by External Trigger Signal\nAnd Press any key to stop Opeartion.\n");
@@ -139,6 +204,7 @@ int main(void)
      fclose(svfile);
 	}
 	printf("\n\nTotal %d input data.\n", count+count1);
+    ResetCard(card);  /* Ensure clean shutdown */
     WD_Release_Card(card);
     printf("\nPress ENTER to exit the program. "); WaitForKeyPress();
     return 0;
