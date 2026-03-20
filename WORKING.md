@@ -237,3 +237,32 @@ Poll:NNNN HR:N FS:0 Qd:N | PTrg:N PEntr:N PDone:N | Raw0:0x~~~~
 - `FS` should remain near 0 throughout the run.
 - `HR`, `Qd`, `PTrg`, `PEntr`, `PDone` should all climb together at the chirp trigger rate.
 - `Raw0` should reflect actual ADC mid-scale (~`0x7FFF` for 0 V input).
+
+---
+
+## 2026-03-20 — MAPsUpdate Branch: ADC Clean Slate
+
+**Branch:** `MAPsUpdate`
+
+The decision was made to rebuild the ADC acquisition pipeline from scratch using the updated MAPs drivers and example code for the PCI-9846H, rather than continuing to patch the existing implementation.
+
+### What was removed from `DeviceControl_FullThreaded.c`
+
+- **Threading:** `HardwarePollThreadFunction`, `DiskWriterThreadFunction_Optimized`, `Overrun_Deferred`, all `CmtXxx`/`CmtTSQ` variables and queue management state (`dmaQueue`, `producerThreadID`, `consumerThreadID`, `isAcquiring`, `queueMaxCapacity`, `BufferSlot`, etc.)
+- **ADC acquisition:** `AdcRegisterCB`, `AdcConfigureCB`, `AdcStartCB`, `AdcStopCB`, `AdcSingleShotCB`, `AdcReleaseCB`, `AdcPollTimerCB` full implementations; all DMA buffer globals (`dmaBuffer1`, `dmaBuffer2`, `halfBufferSize`, `samplesPerChirp`, etc.); all diagnostic counters
+- **FFT / plotting:** `ADC_PlotFFT_Deferred`, `ADC_ComputeFFT`, `FFT_Radix2`, `NextPow2`; all associated scratch arrays (`fftReal`, `fftImag`, `fftMagCH0/1`, `timeDataCH0/1`, `plotBuffer`, `rangeAxis`)
+- **File saving/recording:** `ADC_SaveRawFile`, `ADC_RecordWriteHeader`, `ADC_RecordFinish`, `RadarFileHeader` struct, recording state globals
+- **Includes:** `Wd-dask.h`, `<math.h>` (no longer required)
+- **ADC cleanup** from `main()`
+
+### What was kept
+
+DDS, PSU, and Relay control code is fully intact and unchanged.
+
+### Stub callbacks
+
+All nine ADC tab callbacks required by the `.uir`/`.h` are present as minimal stubs that display `"ADC: Not yet implemented"` in the status field.
+
+### Result
+
+File reduced from 2111 lines to 829 lines. Clean compile baseline ready for new ADC implementation.

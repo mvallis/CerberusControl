@@ -12,7 +12,7 @@ IVI Standard Root Dir = "/c/Program Files/IVI Foundation/IVI"
 VXIplug&play Framework Dir = "/C/Program Files (x86)/IVI Foundation/VISA/winnt"
 IVI Standard Root 64-bit Dir = "/C/Program Files/IVI Foundation/IVI"
 VXIplug&play Framework 64-bit Dir = "/C/Program Files/IVI Foundation/VISA/win64"
-Number of Files = 8
+Number of Files = 10
 Target Type = "Executable"
 Flags = 2064
 Copied From Locked InstrDrv Directory = False
@@ -86,6 +86,18 @@ File Type = "Include"
 Res Id = 5
 Path Is Rel = True
 Path Rel To = "Project"
+Path Rel Path = "Wd-dask64.h"
+Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/Wd-dask64.h"
+Exclude = False
+Project Flags = 0
+Folder = "Include Files"
+Folder Id = 1
+
+[File 0006]
+File Type = "Include"
+Res Id = 6
+Path Is Rel = True
+Path Rel To = "Project"
 Path Rel Path = "wddaskex.h"
 Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/wddaskex.h"
 Exclude = False
@@ -93,9 +105,9 @@ Project Flags = 0
 Folder = "Include Files"
 Folder Id = 1
 
-[File 0006]
+[File 0007]
 File Type = "CSource"
-Res Id = 6
+Res Id = 7
 Path Is Rel = True
 Path Rel To = "Project"
 Path Rel Path = "dds.c"
@@ -106,9 +118,9 @@ Project Flags = 0
 Folder = "Source Files"
 Folder Id = 2
 
-[File 0007]
+[File 0008]
 File Type = "CSource"
-Res Id = 7
+Res Id = 8
 Path Is Rel = True
 Path Rel To = "Project"
 Path Rel Path = "DeviceControl_FullThreaded.c"
@@ -120,13 +132,25 @@ Project Flags = 0
 Folder = "Source Files"
 Folder Id = 2
 
-[File 0008]
+[File 0009]
 File Type = "Library"
-Res Id = 8
+Res Id = 9
 Path Is Rel = True
 Path Rel To = "Project"
 Path Rel Path = "WD-Dask.lib"
 Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/WD-Dask.lib"
+Exclude = False
+Project Flags = 0
+Folder = "Library Files"
+Folder Id = 3
+
+[File 0010]
+File Type = "Library"
+Res Id = 10
+Path Is Rel = True
+Path Rel To = "Project"
+Path Rel Path = "WD-Dask64.lib"
+Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/WD-Dask64.lib"
 Exclude = False
 Project Flags = 0
 Folder = "Library Files"
