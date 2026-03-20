@@ -266,3 +266,64 @@ All nine ADC tab callbacks required by the `.uir`/`.h` are present as minimal st
 ### Result
 
 File reduced from 2111 lines to 829 lines. Clean compile baseline ready for new ADC implementation.
+
+---
+
+## 2026-03-20 — MAPsUpdate Branch: ADC Rebuild (double-buffer)
+
+**Branch:** `MAPsUpdate`
+
+### Architecture
+
+Two save modes, selectable at runtime via different buttons:
+
+| Button | Mode | Mechanism |
+|---|---|---|
+| Start Acq | `SAVE_NONE` | Monitor only — acquire + plot, no file |
+| Record | `SAVE_THREAD` | TSQ producer/consumer → raw U16 binary via `fwrite` thread |
+| Save | `SAVE_TOFILE` | `WD_AI_ContScanChannelsToFile` + `WD_AI_AsyncDblBufferToFile` (driver-managed) |
+| Single | `SAVE_NONE` | One trigger only (`reTrgCnt=1`), then hardware stops automatically |
+
+### Key parameters
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `HALF_BUF_SAMPLES` | 262144 (2^18) | U16 samples per half-buffer |
+| `SCANS_PER_HALF` | 131072 | Simultaneous scan groups (2 ch) per half |
+| `SAVE_QUEUE_CAP` | 32 | TSQ depth (32 × 512 KB = 16 MB) |
+| `RETRIG_CNT_INF` | 65535 | Continuous re-trigger count |
+
+### WD-DASK arm sequence
+
+1. `WD_AI_ContBufferReset`
+2. `WD_AI_AsyncDblBufferMode(card, 1)`
+3. `WD_AI_ContBufferSetup` × 2 — **firstBufId** saved separately
+4. `WD_AI_Trig_Config`: POST, ExtD, Positive, reTrgCnt=65535
+5. `WD_AI_ContScanChannels(card, 1, firstBufId, SCANS_PER_HALF, 1, 1, ASYNCH_OP)`
+
+Poll thread re-arms with `WD_AI_AsyncDblBufferHandled` (or `AsyncDblBufferToFile`).
+`activeBuf ^= 1` tracks which half the hardware just filled.
+
+### Diagnostic status line (every 0.5 s)
+
+```
+Poll:NNNN HR:N FS:N | Sw:N Sd:N | PTrg:N PDn:N | OVR:N
+```
+
+`Poll` = poll loop iterations, `HR` = half-ready events, `FS` = fStop count,
+`Sw` = buffers saved, `Sd` = save drops, `PTrg`/`PDn` = plot posted/done, `OVR` = DMA overrun.
+
+### fStop handling
+
+If `fStop` fires in the poll thread (reTrgCnt exhausted or hardware error), the thread sets
+`isAcquiring = 0` and posts `ADC_StopDeferred` to the UI thread for cleanup.
+User-initiated stop (`AdcStopCB`) calls `ADC_StopAcquisition` directly.
+Both paths are idempotent (guarded by `pollThreadID` / `saveThreadID` checks).
+
+### File naming
+
+Auto-generated on Record/Save: `CerberusData_YYYYMMDD_HHMMSS.dat` (raw U16, no header).
+
+### Result
+
+File grows from 829 lines to 1478 lines. All nine ADC callbacks implemented.

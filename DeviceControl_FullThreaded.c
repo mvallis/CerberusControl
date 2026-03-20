@@ -5,7 +5,7 @@
  *   1. KMTronic 2-Channel USB Relay  (serial / VISA)
  *   2. Siglent SPD3303X DC Power Supply (USBTMC / VISA)
  *   3. AD9914 DDS via custom USB interface board (COM port)
- *   4. ADLINK PCI-9846H ADC digitiser (WD-DASK) - stubs only, pending rebuild
+ *   4. ADLINK PCI-9846H ADC digitiser (WD-DASK) - double-buffer acquisition
  *
  * Loads GUI from DeviceControl_Full.uir
  *
@@ -24,6 +24,7 @@
 
 #include "dds.h"
 #include "DeviceControl_FullThreaded.h"
+#include "Wd-dask64.h"
 
 
 
@@ -765,65 +766,713 @@ int CVICALLBACK DdsDivRatioCB (int p, int c, int ev, void *cbd, int e1, int e2)
 }
 
 /*===========================================================================
- *  CALLBACKS  -  ADC TAB  (stubs - ADC acquisition pending rebuild)
+ *  ADC TAB — PCI-9846H double-buffer acquisition (WD-DASK)
  *===========================================================================*/
+
+/*---------------------------------------------------------------------------
+ * Constants
+ *---------------------------------------------------------------------------*/
+#define ADC_NUM_CH          2U
+#define HALF_BUF_SAMPLES    262144U     /* 2^18 U16 samples per half-buffer          */
+#define SCANS_PER_HALF      131072U     /* HALF_BUF_SAMPLES / ADC_NUM_CH             */
+#define SAVE_QUEUE_CAP      32          /* 32 × 512 KB = 16 MB queue headroom        */
+#define TSQ_WRITE_MS        200         /* ms to wait before counting a save drop     */
+#define PLOT_SCANS_MAX      131072U     /* max scans copied to plot buffer (one half) */
+#define RETRIG_CNT_INF      65535U      /* continuous re-trigger count                */
+#define RETRIG_CNT_ONE      1U          /* single-shot re-trigger count               */
+
+#define SAVE_NONE    0
+#define SAVE_THREAD  1                  /* user-space TSQ → fwrite thread            */
+#define SAVE_TOFILE  2                  /* WD_AI_AsyncDblBufferToFile (driver-managed)*/
+
+/*---------------------------------------------------------------------------
+ * ADC Globals
+ *---------------------------------------------------------------------------*/
+static I16   adcCard       = -1;
+static int   adcRegistered = 0;
+static int   adcConfigured = 0;
+static U16  *dmaBuffer1    = NULL;
+static U16  *dmaBuffer2    = NULL;
+static U16   firstBufId    = 0;
+static U16   secondBufId   = 0;
+
+static volatile int    isAcquiring = 0;
+static int             saveMode    = SAVE_NONE;
+
+static CmtThreadFunctionID pollThreadID = 0;
+static CmtThreadFunctionID saveThreadID = 0;
+static CmtTSQHandle        saveQueue    = 0;
+
+static FILE *recordFile    = NULL;
+static char  recordPath[512];
+
+/* Plot state — written by poll thread, consumed by deferred UI callback */
+static U16          plotBuffer[PLOT_SCANS_MAX * ADC_NUM_CH];
+static unsigned int plotScans    = 0;
+static double       adcVoltScale = 1.0;
+static volatile int plotBusy     = 0;
+
+/* Diagnostic counters (written by poll thread, read by timer on UI thread) */
+static volatile U32 diagPollCount   = 0;
+static volatile U32 diagHalfReady   = 0;
+static volatile U32 diagFStopCount  = 0;
+static volatile U32 diagSaveWritten = 0;
+static volatile U32 diagSaveDropped = 0;
+static volatile U32 diagPlotPosted  = 0;
+static volatile U32 diagPlotDone    = 0;
+static volatile U32 diagDmaOverrun  = 0;
+
+/*---------------------------------------------------------------------------
+ * Forward declarations (ADC-internal)
+ *---------------------------------------------------------------------------*/
+static int  CVICALLBACK HardwarePollThread  (void *data);
+static int  CVICALLBACK DiskSaveThread      (void *data);
+static void CVICALLBACK ADC_PlotDeferred    (void *data);
+static void CVICALLBACK ADC_StopDeferred    (void *data);
+static double           ADC_RangeToVolts    (int rangeConst);
+static void             ADC_GenerateFilename(char *buf, int bufLen);
+static void             ADC_StopAcquisition (void);
+static int              ADC_StartCommon     (int mode, U32 reTrgCnt);
+
+/*---------------------------------------------------------------------------
+ * ADC_RangeToVolts — maps WD-DASK range constant to full-scale volts
+ *---------------------------------------------------------------------------*/
+static double ADC_RangeToVolts (int rangeConst)
+{
+    switch (rangeConst)
+    {
+        case AD_B_10_V:    return 10.0;
+        case AD_B_5_V:     return  5.0;
+        case AD_B_2_5_V:   return  2.5;
+        case AD_B_1_25_V:  return  1.25;
+        case AD_B_1_V:     return  1.0;
+        case AD_B_0_625_V: return  0.625;
+        case AD_B_0_5_V:   return  0.5;
+        default:           return  1.0;
+    }
+}
+
+/*---------------------------------------------------------------------------
+ * ADC_GenerateFilename — CerberusData_YYYYMMDD_HHMMSS.dat
+ *---------------------------------------------------------------------------*/
+static void ADC_GenerateFilename (char *buf, int bufLen)
+{
+    int month, day, year, hours, minutes, seconds;
+    GetSystemDate (&month, &day, &year);
+    GetSystemTime (&hours, &minutes, &seconds);
+    snprintf (buf, bufLen, "CerberusData_%04d%02d%02d_%02d%02d%02d.dat",
+              year, month, day, hours, minutes, seconds);
+}
+
+/*---------------------------------------------------------------------------
+ * HardwarePollThread — polls for half-buffer ready events
+ *---------------------------------------------------------------------------*/
+static int CVICALLBACK HardwarePollThread (void *data)
+{
+    BOOLEAN halfReady, fStop;
+    U32     sts;
+    int     activeBuf = 0;
+
+    while (isAcquiring)
+    {
+        WD_AI_AsyncDblBufferHalfReady (adcCard, &halfReady, &fStop);
+        diagPollCount++;
+
+        if (fStop)
+        {
+            diagFStopCount++;
+            isAcquiring = 0;
+            PostDeferredCall ((DeferredCallbackPtr)ADC_StopDeferred, NULL);
+            break;
+        }
+
+        if (halfReady)
+        {
+            U16 *src = (activeBuf == 0) ? dmaBuffer1 : dmaBuffer2;
+            diagHalfReady++;
+
+            /* Check for DMA overrun */
+            WD_AI_ContStatus (adcCard, &sts);
+            if (sts & 0x60000000U)
+                diagDmaOverrun++;
+
+            /* Save (priority) */
+            if (saveMode == SAVE_THREAD && saveQueue != 0)
+            {
+                if (CmtWriteTSQData (saveQueue, src, 1, TSQ_WRITE_MS, NULL) < 1)
+                    diagSaveDropped++;
+            }
+
+            /* Plot (lower priority — skip if previous plot not yet consumed) */
+            if (!plotBusy && plotScans > 0)
+            {
+                U32 scans = (plotScans > PLOT_SCANS_MAX) ? PLOT_SCANS_MAX : plotScans;
+                memcpy (plotBuffer, src, scans * ADC_NUM_CH * sizeof (U16));
+                plotBusy = 1;
+                diagPlotPosted++;
+                PostDeferredCall ((DeferredCallbackPtr)ADC_PlotDeferred, NULL);
+            }
+
+            /* Re-arm hardware for next half */
+            if (saveMode == SAVE_TOFILE)
+                WD_AI_AsyncDblBufferToFile (adcCard);
+            else
+                WD_AI_AsyncDblBufferHandled (adcCard);
+
+            activeBuf ^= 1;
+        }
+    }
+
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * DiskSaveThread — reads from TSQ and writes raw U16 to file
+ *---------------------------------------------------------------------------*/
+static int CVICALLBACK DiskSaveThread (void *data)
+{
+    U16  *slotBuf;
+    U32   flushCounter = 0;
+    int   n;
+
+    slotBuf = (U16 *)malloc (HALF_BUF_SAMPLES * sizeof (U16));
+    if (!slotBuf) return -1;
+
+    /* Drain queue while acquisition is running */
+    while (isAcquiring)
+    {
+        n = CmtReadTSQData (saveQueue, slotBuf, 1, 200, 0);
+        if (n > 0 && recordFile)
+        {
+            fwrite (slotBuf, sizeof (U16), HALF_BUF_SAMPLES, recordFile);
+            diagSaveWritten++;
+            if (++flushCounter % 4 == 0)
+                fflush (recordFile);
+        }
+    }
+
+    /* Drain any remaining items after poll thread has stopped */
+    while (CmtReadTSQData (saveQueue, slotBuf, 1, 0, 0) > 0)
+    {
+        if (recordFile)
+        {
+            fwrite (slotBuf, sizeof (U16), HALF_BUF_SAMPLES, recordFile);
+            diagSaveWritten++;
+        }
+    }
+
+    if (recordFile)
+    {
+        fflush (recordFile);
+        fclose (recordFile);
+        recordFile = NULL;
+    }
+
+    free (slotBuf);
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * ADC_PlotDeferred — runs on UI thread; plots one half-buffer of CH0 + CH1
+ *---------------------------------------------------------------------------*/
+static void CVICALLBACK ADC_PlotDeferred (void *data)
+{
+    static double ch0[PLOT_SCANS_MAX];
+    static double ch1[PLOT_SCANS_MAX];
+    U32    i, scans;
+    double scale;
+
+    scans = plotScans;
+    if (scans == 0 || scans > PLOT_SCANS_MAX) { plotBusy = 0; return; }
+
+    scale = adcVoltScale / 32768.0;
+    for (i = 0; i < scans; i++)
+    {
+        ch0[i] = (double)((I16)plotBuffer[i * 2    ]) * scale;
+        ch1[i] = (double)((I16)plotBuffer[i * 2 + 1]) * scale;
+    }
+
+    DeleteGraphPlot (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, -1, VAL_DELAYED_DRAW);
+    PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, ch0, (int)scans,
+           VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
+    PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, ch1, (int)scans,
+           VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+
+    diagPlotDone++;
+    plotBusy = 0;
+}
+
+/*---------------------------------------------------------------------------
+ * ADC_StopAcquisition — idempotent cleanup; safe to call from UI thread
+ *---------------------------------------------------------------------------*/
+static void ADC_StopAcquisition (void)
+{
+    U32 startPos, accessCnt;
+
+    isAcquiring = 0;
+
+    if (pollThreadID != 0)
+    {
+        CmtWaitForThreadPoolFunctionCompletion (DEFAULT_THREAD_POOL_HANDLE,
+                                               pollThreadID,
+                                               OPT_TP_PROCESS_EVENTS_WHILE_WAITING);
+        CmtReleaseThreadPoolFunctionID (DEFAULT_THREAD_POOL_HANDLE, pollThreadID);
+        pollThreadID = 0;
+    }
+
+    if (saveThreadID != 0)
+    {
+        CmtWaitForThreadPoolFunctionCompletion (DEFAULT_THREAD_POOL_HANDLE,
+                                               saveThreadID,
+                                               OPT_TP_PROCESS_EVENTS_WHILE_WAITING);
+        CmtReleaseThreadPoolFunctionID (DEFAULT_THREAD_POOL_HANDLE, saveThreadID);
+        saveThreadID = 0;
+    }
+
+    if (adcCard >= 0)
+        WD_AI_AsyncClear (adcCard, &startPos, &accessCnt);
+
+    if (saveQueue != 0)
+    {
+        CmtDiscardTSQ (saveQueue);
+        saveQueue = 0;
+    }
+
+    /* Safety: close file if save thread failed to do so */
+    if (recordFile)
+    {
+        fflush (recordFile);
+        fclose (recordFile);
+        recordFile = NULL;
+    }
+
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_TIMER_POLL,  ATTR_ENABLED, 0);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,    ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SAVE,      ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SINGLE,    ATTR_DIMMED, 0);
+}
+
+/*---------------------------------------------------------------------------
+ * ADC_StopDeferred — posted by poll thread when fStop fires; runs on UI thread
+ *---------------------------------------------------------------------------*/
+static void CVICALLBACK ADC_StopDeferred (void *data)
+{
+    char msg[128];
+    snprintf (msg, sizeof(msg),
+              "ADC: Stopped (fStop) — HR:%u FS:%u Qd:%u",
+              (unsigned)diagHalfReady,
+              (unsigned)diagFStopCount,
+              (unsigned)diagSaveWritten);
+    ADC_StopAcquisition ();
+    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+}
+
+/*---------------------------------------------------------------------------
+ * ADC_StartCommon — arm hardware and start threads
+ *   mode     : SAVE_NONE | SAVE_THREAD | SAVE_TOFILE
+ *   reTrgCnt : RETRIG_CNT_INF (continuous) or RETRIG_CNT_ONE (single shot)
+ * Returns 0 on success, -1 on failure (status message already set).
+ *---------------------------------------------------------------------------*/
+static int ADC_StartCommon (int mode, U32 reTrgCnt)
+{
+    I16  err;
+    char msg[256];
+
+    if (!adcConfigured)
+    {
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Configure first");
+        return -1;
+    }
+    if (isAcquiring)
+    {
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Already running");
+        return -1;
+    }
+
+    saveMode = mode;
+
+    /* Reset and enable double-buffer mode */
+    WD_AI_ContBufferReset (adcCard);
+    err = WD_AI_AsyncDblBufferMode (adcCard, 1);
+    if (err != NoError)
+    {
+        snprintf (msg, sizeof(msg), "ADC: AsyncDblBufferMode failed (%d)", (int)err);
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        return -1;
+    }
+
+    /* Register both DMA half-buffers — save buf1's ID separately */
+    err = WD_AI_ContBufferSetup (adcCard, dmaBuffer1, HALF_BUF_SAMPLES, &firstBufId);
+    if (err != NoError)
+    {
+        snprintf (msg, sizeof(msg), "ADC: ContBufferSetup buf1 failed (%d)", (int)err);
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        return -1;
+    }
+    err = WD_AI_ContBufferSetup (adcCard, dmaBuffer2, HALF_BUF_SAMPLES, &secondBufId);
+    if (err != NoError)
+    {
+        snprintf (msg, sizeof(msg), "ADC: ContBufferSetup buf2 failed (%d)", (int)err);
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        return -1;
+    }
+
+    /* Configure external digital trigger: POST, positive edge */
+    err = WD_AI_Trig_Config (adcCard,
+                             WD_AI_TRGMOD_POST,
+                             WD_AI_TRGSRC_ExtD,
+                             WD_AI_TrgPositive,
+                             0, 0.0, 0, 0, 0,
+                             (U32)reTrgCnt);
+    if (err != NoError)
+    {
+        snprintf (msg, sizeof(msg), "ADC: Trig_Config failed (%d)", (int)err);
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        return -1;
+    }
+
+    /* Reset diagnostics */
+    diagPollCount = diagHalfReady = diagFStopCount = 0;
+    diagSaveWritten = diagSaveDropped = diagPlotPosted = diagPlotDone = diagDmaOverrun = 0;
+    plotBusy = 0;
+
+    /* Arm hardware */
+    if (mode == SAVE_TOFILE)
+    {
+        err = WD_AI_ContScanChannelsToFile (adcCard,
+                                            (U16)(ADC_NUM_CH - 1),
+                                            firstBufId,
+                                            (U8 *)recordPath,
+                                            SCANS_PER_HALF,
+                                            1, 1,
+                                            ASYNCH_OP);
+    }
+    else
+    {
+        err = WD_AI_ContScanChannels (adcCard,
+                                      (U16)(ADC_NUM_CH - 1),
+                                      firstBufId,
+                                      SCANS_PER_HALF,
+                                      1, 1,
+                                      ASYNCH_OP);
+    }
+    if (err != NoError)
+    {
+        snprintf (msg, sizeof(msg), "ADC: ContScanChannels arm failed (%d)", (int)err);
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        return -1;
+    }
+
+    /* Start save thread (SAVE_THREAD mode only) */
+    if (mode == SAVE_THREAD)
+    {
+        if (CmtNewTSQ (SAVE_QUEUE_CAP, HALF_BUF_SAMPLES * sizeof (U16), 0, &saveQueue) < 0)
+        {
+            SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: TSQ creation failed");
+            WD_AI_AsyncClear (adcCard, NULL, NULL);
+            return -1;
+        }
+        if (CmtScheduleThreadPoolFunction (DEFAULT_THREAD_POOL_HANDLE,
+                                           DiskSaveThread, NULL, &saveThreadID) < 0)
+        {
+            SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Save thread failed");
+            CmtDiscardTSQ (saveQueue); saveQueue = 0;
+            WD_AI_AsyncClear (adcCard, NULL, NULL);
+            return -1;
+        }
+    }
+
+    /* Start poll thread */
+    isAcquiring = 1;
+    if (CmtScheduleThreadPoolFunction (DEFAULT_THREAD_POOL_HANDLE,
+                                       HardwarePollThread, NULL, &pollThreadID) < 0)
+    {
+        isAcquiring = 0;
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Poll thread failed");
+        if (saveThreadID != 0)
+        {
+            CmtWaitForThreadPoolFunctionCompletion (DEFAULT_THREAD_POOL_HANDLE,
+                                                   saveThreadID, 0);
+            CmtReleaseThreadPoolFunctionID (DEFAULT_THREAD_POOL_HANDLE, saveThreadID);
+            saveThreadID = 0;
+        }
+        if (saveQueue != 0) { CmtDiscardTSQ (saveQueue); saveQueue = 0; }
+        WD_AI_AsyncClear (adcCard, NULL, NULL);
+        return -1;
+    }
+
+    /* Enable diagnostic timer */
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_TIMER_POLL, ATTR_INTERVAL, 0.5);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_TIMER_POLL, ATTR_ENABLED,  1);
+
+    /* Update button states */
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 0);
+
+    return 0;
+}
+
+/*===========================================================================
+ *  CALLBACKS  -  ADC TAB
+ *===========================================================================*/
+
+/*---------------------------------------------------------------------------
+ * AdcRegisterCB — register the PCI-9846H with the WD-DASK driver
+ *---------------------------------------------------------------------------*/
 int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
+    int  cardNum;
+    I16  handle;
+    char msg[128];
+
     if (ev != EVENT_COMMIT) return 0;
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Not yet implemented");
+    if (adcRegistered)
+    {
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Already registered");
+        return 0;
+    }
+
+    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_CARD_NUM, &cardNum);
+    handle = WD_Register_Card (PCI_9846H, (U16)cardNum);
+    if (handle < 0)
+    {
+        snprintf (msg, sizeof(msg), "ADC: Register_Card failed (%d)", (int)handle);
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        return 0;
+    }
+
+    adcCard       = handle;
+    adcRegistered = 1;
+    adcConfigured = 0;
+
+    SetCtrlVal       (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Registered OK");
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
     return 0;
 }
 
+/*---------------------------------------------------------------------------
+ * AdcConfigureCB — configure ADC channels and allocate kernel-aligned DMA buffers
+ *---------------------------------------------------------------------------*/
 int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
+    int  timebase, impedance, range, i;
+    I16  err;
+    char msg[256];
+
     if (ev != EVENT_COMMIT) return 0;
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Not yet implemented");
+    if (!adcRegistered)
+    {
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Register first");
+        return 0;
+    }
+    if (isAcquiring)
+    {
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Stop acquisition first");
+        return 0;
+    }
+
+    /* Free any existing DMA buffers */
+    if (dmaBuffer1) { WD_Buffer_Free (adcCard, dmaBuffer1); dmaBuffer1 = NULL; }
+    if (dmaBuffer2) { WD_Buffer_Free (adcCard, dmaBuffer2); dmaBuffer2 = NULL; }
+    adcConfigured = 0;
+
+    /* Read UI settings */
+    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_TIMEBASE,    &timebase);
+    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_IMPEDANCE,   &impedance);
+    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_RANGE,       &range);
+    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, (int *)&plotScans);
+
+    if (plotScans > PLOT_SCANS_MAX) plotScans = PLOT_SCANS_MAX;
+    adcVoltScale = ADC_RangeToVolts (range);
+
+    /* Configure ADC: timebase from ring, no duty restore, ConvSrc=0, single-edge,
+       no auto-reset */
+    err = WD_AI_Config (adcCard, (U16)timebase, 0, 0, 0, 0);
+    if (err != NoError)
+    {
+        snprintf (msg, sizeof(msg), "ADC: AI_Config failed (%d)", (int)err);
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        return 0;
+    }
+
+    /* Per-channel configuration */
+    for (i = 0; i < (int)ADC_NUM_CH; i++)
+    {
+        err = WD_AI_CH_Config (adcCard, (U16)i, (U16)range);
+        if (err != NoError)
+        {
+            snprintf (msg, sizeof(msg), "ADC: CH_Config ch%d failed (%d)", i, (int)err);
+            SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+            return 0;
+        }
+        if (impedance)
+        {
+            err = WD_AI_CH_ChangeParam (adcCard, (U16)i, AI_IMPEDANCE, 1);
+            if (err != NoError)
+            {
+                snprintf (msg, sizeof(msg),
+                          "ADC: CH_ChangeParam impedance ch%d failed (%d)", i, (int)err);
+                SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+                return 0;
+            }
+        }
+    }
+
+    /* Allocate kernel-aligned DMA buffers */
+    dmaBuffer1 = (U16 *)WD_Buffer_Alloc (adcCard, HALF_BUF_SAMPLES * sizeof (U16));
+    dmaBuffer2 = (U16 *)WD_Buffer_Alloc (adcCard, HALF_BUF_SAMPLES * sizeof (U16));
+    if (!dmaBuffer1 || !dmaBuffer2)
+    {
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS,
+                    "ADC: DMA buffer allocation failed");
+        if (dmaBuffer1) { WD_Buffer_Free (adcCard, dmaBuffer1); dmaBuffer1 = NULL; }
+        if (dmaBuffer2) { WD_Buffer_Free (adcCard, dmaBuffer2); dmaBuffer2 = NULL; }
+        return 0;
+    }
+
+    adcConfigured = 1;
+    snprintf (msg, sizeof(msg),
+              "ADC: Configured — ±%.3fV, %u scans/half-buf, plotScans=%u",
+              adcVoltScale, SCANS_PER_HALF, plotScans);
+    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,    ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SAVE,      ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SINGLE,    ATTR_DIMMED, 0);
     return 0;
 }
 
+/*---------------------------------------------------------------------------
+ * AdcStartCB — monitor mode: acquire + plot, no saving
+ *---------------------------------------------------------------------------*/
 int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
     if (ev != EVENT_COMMIT) return 0;
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Not yet implemented");
+    if (ADC_StartCommon (SAVE_NONE, RETRIG_CNT_INF) == 0)
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Acquiring (monitor)");
     return 0;
 }
 
-int CVICALLBACK AdcStopCB (int p, int c, int ev, void *cbd, int e1, int e2)
-{
-    if (ev != EVENT_COMMIT) return 0;
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Not yet implemented");
-    return 0;
-}
-
-int CVICALLBACK AdcSingleShotCB (int p, int c, int ev, void *cbd, int e1, int e2)
-{
-    if (ev != EVENT_COMMIT) return 0;
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Not yet implemented");
-    return 0;
-}
-
-int CVICALLBACK AdcReleaseCB (int p, int c, int ev, void *cbd, int e1, int e2)
-{
-    if (ev != EVENT_COMMIT) return 0;
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Not yet implemented");
-    return 0;
-}
-
-int CVICALLBACK AdcSaveCB (int p, int c, int ev, void *cbd, int e1, int e2)
-{
-    if (ev != EVENT_COMMIT) return 0;
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Not yet implemented");
-    return 0;
-}
-
+/*---------------------------------------------------------------------------
+ * AdcRecordCB — SAVE_THREAD mode: TSQ producer/consumer → raw binary file
+ *---------------------------------------------------------------------------*/
 int CVICALLBACK AdcRecordCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
     if (ev != EVENT_COMMIT) return 0;
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Not yet implemented");
+
+    ADC_GenerateFilename (recordPath, sizeof (recordPath));
+    recordFile = fopen (recordPath, "wb");
+    if (!recordFile)
+    {
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS,
+                    "ADC: Cannot open output file");
+        return 0;
+    }
+
+    if (ADC_StartCommon (SAVE_THREAD, RETRIG_CNT_INF) < 0)
+    {
+        fclose (recordFile); recordFile = NULL;
+        return 0;
+    }
+
+    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Recording (thread)");
     return 0;
 }
 
+/*---------------------------------------------------------------------------
+ * AdcSaveCB — SAVE_TOFILE mode: driver writes DMA data directly to file
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK AdcSaveCB (int p, int c, int ev, void *cbd, int e1, int e2)
+{
+    if (ev != EVENT_COMMIT) return 0;
+
+    ADC_GenerateFilename (recordPath, sizeof (recordPath));
+
+    if (ADC_StartCommon (SAVE_TOFILE, RETRIG_CNT_INF) < 0)
+        return 0;
+
+    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Recording (ToFile)");
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * AdcSingleShotCB — monitor mode, one trigger only
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK AdcSingleShotCB (int p, int c, int ev, void *cbd, int e1, int e2)
+{
+    if (ev != EVENT_COMMIT) return 0;
+    if (ADC_StartCommon (SAVE_NONE, RETRIG_CNT_ONE) == 0)
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Single-shot armed");
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * AdcStopCB — stop all threads and clean up
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK AdcStopCB (int p, int c, int ev, void *cbd, int e1, int e2)
+{
+    if (ev != EVENT_COMMIT) return 0;
+    ADC_StopAcquisition ();
+    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Stopped");
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * AdcReleaseCB — stop if running, free DMA buffers, release card
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK AdcReleaseCB (int p, int c, int ev, void *cbd, int e1, int e2)
+{
+    if (ev != EVENT_COMMIT) return 0;
+
+    if (isAcquiring)
+        ADC_StopAcquisition ();
+
+    if (dmaBuffer1) { WD_Buffer_Free (adcCard, dmaBuffer1); dmaBuffer1 = NULL; }
+    if (dmaBuffer2) { WD_Buffer_Free (adcCard, dmaBuffer2); dmaBuffer2 = NULL; }
+
+    if (adcRegistered)
+    {
+        WD_Release_Card (adcCard);
+        adcCard       = -1;
+        adcRegistered = 0;
+        adcConfigured = 0;
+    }
+
+    SetCtrlVal       (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Released");
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * AdcPollTimerCB — display pipeline diagnostics every 0.5 s
+ *---------------------------------------------------------------------------*/
 int CVICALLBACK AdcPollTimerCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
+    char msg[256];
+    if (ev != EVENT_TIMER_TICK) return 0;
+
+    snprintf (msg, sizeof(msg),
+              "Poll:%u HR:%u FS:%u | Sw:%u Sd:%u | PTrg:%u PDn:%u | OVR:%u",
+              (unsigned)diagPollCount,
+              (unsigned)diagHalfReady,
+              (unsigned)diagFStopCount,
+              (unsigned)diagSaveWritten,
+              (unsigned)diagSaveDropped,
+              (unsigned)diagPlotPosted,
+              (unsigned)diagPlotDone,
+              (unsigned)diagDmaOverrun);
+
+    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
     return 0;
 }
