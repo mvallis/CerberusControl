@@ -94,6 +94,7 @@ static int    adcRunning    = 0;
 static U16   *dmaBuffer1      = NULL;  /* Replaces adcBuffer */
 static U16   *dmaBuffer2      = NULL;  /* Dual buffer architecture */
 static U16    adcBufId        = 0;
+static U16    adcBufId1       = 0;  /* ID of first DMA buffer — passed to ContReadMultiChannels */
 static U32    halfBufferSize  = 0;    
 static U32    samplesPerChirp = 0;
 static U32    absoluteSampleCount = 0; 
@@ -140,6 +141,27 @@ static U16          plotBuffer[FFT_MAX_SIZE * 2];
 static int          plotSamples      = 0;
 static volatile int plotBusy         = 0;
 static int          heartbeatCounter = 0;  /* Diagnostic: counts processed buffers */
+
+/* ---- Pipeline Diagnostic Counters (written by threads, read by timer on main thread) ----
+ *  diagPollCount        : total WD_AI_AsyncDblBufferHalfReady calls  → loop is running
+ *  diagHalfReadyCount   : halfReady == TRUE                          → hardware delivering data
+ *  diagFStopCount       : fStop == TRUE (hardware stopped/error)     → hardware state
+ *  diagQueuedCount      : successful CmtWriteTSQData calls           → queue filling
+ *  diagPlotTriggeredCount: plot PostDeferredCall posted               → plot path entered
+ *  diagPlotEnteredCount : ADC_PlotFFT_Deferred entered w/ data        → deferred executing
+ *  diagPlotCompletedCount: ADC_PlotFFT_Deferred completed fully       → render done
+ *  diagFirstRawSample   : first raw U16 from first ready half-buffer  → DMA data sanity
+ *  diagFirstRawValid    : set to 1 once diagFirstRawSample is captured
+ * ---- */
+static volatile U32 diagPollCount         = 0;
+static volatile U32 diagHalfReadyCount    = 0;
+static volatile U32 diagFStopCount        = 0;
+static volatile U32 diagQueuedCount       = 0;
+static volatile U32 diagPlotTriggeredCount= 0;
+static volatile U32 diagPlotEnteredCount  = 0;
+static volatile U32 diagPlotCompletedCount= 0;
+static volatile U16 diagFirstRawSample    = 0;
+static volatile int diagFirstRawValid     = 0;
 static double       timeDataCH0[FFT_MAX_SIZE];
 static double       timeDataCH1[FFT_MAX_SIZE];
 static double       currentAdcVoltageLimit = 1.0; /* 1.0V or 5.0V based on UI */
@@ -175,12 +197,9 @@ static void SetPSUDimmed        (int dimmed);
 
 /* ADC helpers */
 static void ADC_ComputeFFT   (U16 *data, int nSamples, int chOffset, int nCh, double *outMag);
-static void CVICALLBACK ADC_PlotFFT_Deferred (void *callbackData);
 static int  ADC_SaveRawFile  (const char *path);
 static void ADC_RecordWriteHeader (void);
-static void ADC_RecordAppendData  (void);
 static void ADC_RecordFinish      (void);
-static int  ADC_RestartAcquisition (void);
 
 /* Simple FFT */
 static void FFT_Radix2       (double *re, double *im, int n);
@@ -462,8 +481,9 @@ static void FFT_Radix2 (double *re, double *im, int n)
  *===========================================================================*/
 int CVICALLBACK DiskWriterThreadFunction_Optimized (void *functionData)
 {
-    /* Allocate batch storage */
-    BufferSlot batch[BATCH_SIZE];
+    /* Allocate batch storage — zero-initialise so .buffer fields are NULL before the
+       allocation loop, keeping the cleanup guards safe if an early malloc fails. */
+    BufferSlot batch[BATCH_SIZE] = {0};
     for (int i = 0; i < BATCH_SIZE; i++) {
         batch[i].buffer = (U16*)malloc(halfBufferSize * sizeof(U16));
         if (!batch[i].buffer) return -1;
@@ -473,12 +493,17 @@ int CVICALLBACK DiskWriterThreadFunction_Optimized (void *functionData)
     U32 buffersInBatch = 0;
     U32 totalWriteCount = 0;
     time_t lastFlushTime = time(NULL);
-    
+
+    /* Pre-allocate dequeue buffer once — avoids repeated ~6.7 MB malloc per loop iteration
+       which would silently kill this thread on allocation failure before any plots can fire. */
+    U16 *queueBuffer = (U16*)malloc(halfBufferSize * sizeof(U16));
+    if (!queueBuffer) {
+        for (int i = 0; i < BATCH_SIZE; i++) { if (batch[i].buffer) free(batch[i].buffer); }
+        return -1;
+    }
+
     while (isAcquiring) {
         /* Attempt to read from queue (100ms timeout) */
-        U16 *queueBuffer = (U16*)malloc(halfBufferSize * sizeof(U16));
-        if (!queueBuffer) break;
-        
         int itemsRead = CmtReadTSQData(dmaQueue, queueBuffer, 1, 100, 0);
         
         if (itemsRead > 0) {
@@ -519,14 +544,6 @@ int CVICALLBACK DiskWriterThreadFunction_Optimized (void *functionData)
                 lastFlushTime = time(NULL);
                 totalWriteCount++;
                 
-                /* Update UI status every 10 batches (every ~40 buffers) */
-                if (totalWriteCount % 10 == 0) {
-                    char msg[64];
-                    sprintf(msg, "Write: %u batches (%u buf)", totalWriteCount, 
-                           totalWriteCount * buffersInBatch);
-                    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
-                }
-                
                 /* Update trigger count */
                 if (samplesPerChirp > 0)
                     recordedTrigs += (buffersInBatch * halfBufferSize / ADC_NUM_CHANNELS) / samplesPerChirp;
@@ -535,8 +552,6 @@ int CVICALLBACK DiskWriterThreadFunction_Optimized (void *functionData)
                 buffersInBatch = 0;
             }
         }
-        
-        free(queueBuffer);
     }
     
     /* Flush any remaining partial batch on shutdown */
@@ -547,17 +562,12 @@ int CVICALLBACK DiskWriterThreadFunction_Optimized (void *functionData)
         fflush(recordFile);
     }
     
-    /* Final stats before exit */
-    char finalMsg[128];
-    sprintf(finalMsg, "Write complete: %u batches, %u total samples",
-           totalWriteCount, totalWriteCount * BATCH_SIZE * (halfBufferSize / ADC_NUM_CHANNELS));
-    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, finalMsg);
-    
-    /* Cleanup */
+    /* Cleanup — free the pre-allocated dequeue buffer and batch slots */
+    if (queueBuffer) free(queueBuffer);
     for (int i = 0; i < BATCH_SIZE; i++) {
         if (batch[i].buffer) free(batch[i].buffer);
     }
-    
+
     return 0;
 }
 
@@ -596,9 +606,18 @@ int CVICALLBACK HardwarePollThreadFunction (void *functionData)
 
     while (isAcquiring) {
         WD_AI_AsyncDblBufferHalfReady(adcCard, &halfReady, &fStop);
+        diagPollCount++;                          /* Stage 1: loop is alive */
+        if (fStop)  diagFStopCount++;             /* Hardware stop/error event */
         if (halfReady) {
+            diagHalfReadyCount++;                 /* Stage 2: hardware delivered a half-buffer */
             U16 *src = (activeBuf == 0) ? dmaBuffer1 : dmaBuffer2;
-            
+
+            /* Capture first raw sample once to verify DMA actually transferred data */
+            if (!diagFirstRawValid) {
+                diagFirstRawSample = src[0];
+                diagFirstRawValid  = 1;
+            }
+
             /* ---- Check queue depth and apply back-pressure ---- */
             if (currentQueueDepth >= queueHighWater) {
                 queueBackPressure = 1;  /* Signal to UI/diagnostics */
@@ -632,20 +651,20 @@ int CVICALLBACK HardwarePollThreadFunction (void *functionData)
             } else {
                 /* ---- Increment queue depth counter on successful enqueue ---- */
                 currentQueueDepth++;
-                
+                diagQueuedCount++;                /* Stage 3: data reached the queue */
+
                 /* ---- CRITICAL: Only acknowledge buffer to hardware AFTER successful enqueue ---- */
                 /* This ensures the hardware won't overwrite the buffer while we're copying it */
                 WD_AI_AsyncDblBufferHandled(adcCard);
                 activeBuf = 1 - activeBuf;
                 heartbeatCounter++;
 
-                /* ---- Throttled live plot update ---- */
-                /* Fire every 4th half-buffer. plotBusy guards against queuing a second
-                   deferred call before the UI thread has finished the previous render.
-                   Only copy one chirp (samplesPerChirp * nCh samples) — plotBuffer is
-                   sized for FFT_MAX_SIZE * 2 elements, not the full half-buffer. */
+                /* ---- Live plot update ---- */
+                /* plotBusy guards against queuing a second deferred call before the UI
+                   thread has finished the previous render. Only copy one chirp
+                   (samplesPerChirp * nCh samples) — plotBuffer is sized for
+                   FFT_MAX_SIZE * 2 elements, not the full half-buffer. */
                 if (!plotBusy &&
-                    (heartbeatCounter % 4) == 0 &&
                     samplesPerChirp > 0 &&
                     samplesPerChirp <= FFT_MAX_SIZE)
                 {
@@ -653,6 +672,7 @@ int CVICALLBACK HardwarePollThreadFunction (void *functionData)
                     plotBusy = 1;
                     memcpy(plotBuffer, bufferCopy, plotLen * sizeof(U16));
                     plotSamples = (int)samplesPerChirp;
+                    diagPlotTriggeredCount++;     /* Stage 4: PostDeferredCall about to be posted */
                     PostDeferredCall((DeferredCallbackPtr)ADC_PlotFFT_Deferred, NULL);
                 }
             }
@@ -686,9 +706,11 @@ void CVICALLBACK ADC_PlotFFT_Deferred (void *callbackData)
     double startF, stopF, bwDDS_Hz, bwTx_Hz, chirpPeriod_s;
     double rangePerBin;
 
+    diagPlotEnteredCount++;               /* Stage 5: deferred callback is executing */
+
     if (plotSamples == 0) {
         plotBusy = 0;
-        return; 
+        return;
     }
 
     /* 1. Time-Domain: Extract, voltage-scale, plot */
@@ -755,6 +777,7 @@ void CVICALLBACK ADC_PlotFFT_Deferred (void *callbackData)
         SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, ATTR_XNAME, "Range (m)");
         SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, ATTR_YNAME, "Magnitude (dB)");
     }
+    diagPlotCompletedCount++;             /* Stage 6: all graph calls completed */
     plotBusy = 0;
 }
 
@@ -1554,8 +1577,8 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
     }
 
     for (i = 0; i < ADC_NUM_CHANNELS; i++) {
-        WD_AI_CH_Config (adcCard, i, adRange);
-        WD_AI_CH_ChangeParam (adcCard, i, AI_IMPEDANCE, impedance);
+        WD_AI_CH_Config (adcCard, (U16)i, adRange);
+        WD_AI_CH_ChangeParam (adcCard, (U16)i, AI_IMPEDANCE, impedance);
     }
 
     if (pDiv <= 0) pDiv = 1;
@@ -1579,6 +1602,14 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
     
     /* Align strictly to pDiv so radar sweeps do not straddle buffer edges awkwardly */
     scansPerHalf = ((targetScans / pDiv) + 1) * pDiv;
+
+    /* WD-DASK rule: ReadScans must be a multiple of 2.
+       The +1 offset above produces an odd result when targetScans/pDiv is even
+       (e.g. pDiv=1 gives 1,677,521 — odd). Round up by 1 scan to restore alignment.
+       Also ensures ReadScans * NumChannels (= halfBufferSize) is a multiple of 4,
+       satisfying the DMA even-sample requirement. */
+    if (scansPerHalf & 1) scansPerHalf++;
+
     halfBufferSize = scansPerHalf * ADC_NUM_CHANNELS;
     adcTotalSamples = halfBufferSize * 2;
 
@@ -1594,11 +1625,19 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
         return 0;
     }
 	
-	/* PostTrigScans MUST be 0 for POST trigger mode */
+	/* PostTrigScans MUST be 0 for POST trigger mode.
+       reTrgCnt is the 10th (last) parameter of Trig_Config — NOT a parameter of
+       ContReadMultiChannels (which has no trigger-count parameter at all).
+       Max per WD-DASK manual is 2^31-1, but reTrgCnt > 1 activates re-trigger mode
+       inside the driver which is INCOMPATIBLE with WD_AI_AsyncDblBufferMode +
+       WD_AI_ContBufferSetup (ErrorConfigIoctl -201 results).
+       Re-trigger mode uses WD_AI_AsyncReTrigNextReady as its polling API instead.
+       Keep reTrgCnt=1 for double-buffer streaming; the hardware re-arms via
+       WD_AI_AsyncDblBufferHandled after each half-buffer is processed. */
     err = WD_AI_Trig_Config(adcCard, WD_AI_TRGMOD_POST, WD_AI_TRGSRC_ExtD,
                             WD_AI_TrgPositive, 0, 0.0, 0, 0, 0, 1);
     if (err != NoError) return 0;
-	
+
  	WD_AI_AsyncDblBufferMode(adcCard, 1); //Moved BEFORE both buffers setup!
 
     err = WD_AI_ContBufferSetup(adcCard, dmaBuffer1, halfBufferSize, &adcBufId);
@@ -1623,9 +1662,10 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
 }
 int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
-    I16 err;
-    U32 totalScansPerCh;
+    I16  err;
+    U32  totalScansPerCh;
     char diagMsg[256];
+    U16  chans[ADC_NUM_CHANNELS];   /* explicit channel list for ContReadMultiChannels */
 
     if (ev != EVENT_COMMIT || !adcRegistered) return 0;
 
@@ -1648,16 +1688,33 @@ int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
         return 0;
     }
 	
-    /* PostTrigScans MUST be 0 for POST trigger mode */
+    /* PostTrigScans MUST be 0 for POST trigger mode.
+       reTrgCnt (10th param) must stay at 1 — values > 1 switch the driver into
+       re-trigger mode (uses WD_AI_AsyncReTrigNextReady) which is incompatible
+       with double-buffer mode (WD_AI_ContBufferSetup returns ErrorConfigIoctl -201).
+       Continuous operation is achieved through WD_AI_AsyncDblBufferHandled re-arming
+       the hardware after each half-buffer, not through reTrgCnt > 1. */
     err = WD_AI_Trig_Config(adcCard, WD_AI_TRGMOD_POST, WD_AI_TRGSRC_ExtD,
                             WD_AI_TrgPositive, 0, 0.0, 0, 0, 0, 1);
     if (err != NoError) return 0;
 
     WD_AI_AsyncDblBufferMode(adcCard, 1);
 
-    /* Register dual buffers */
-    WD_AI_ContBufferSetup(adcCard, dmaBuffer1, halfBufferSize, &adcBufId);
-    WD_AI_ContBufferSetup(adcCard, dmaBuffer2, halfBufferSize, &adcBufId);
+    /* Register dual buffers — both must succeed or halfReady will never fire.
+       adcBufId1 preserves the first buffer's ID; the second call overwrites adcBufId
+       so ContReadMultiChannels must use adcBufId1 to start from the correct buffer. */
+    err = WD_AI_ContBufferSetup(adcCard, dmaBuffer1, halfBufferSize, &adcBufId1);
+    if (err != NoError) {
+        sprintf(diagMsg, "ContBufferSetup[1] Error: %d", err);
+        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
+        return 0;
+    }
+    err = WD_AI_ContBufferSetup(adcCard, dmaBuffer2, halfBufferSize, &adcBufId);
+    if (err != NoError) {
+        sprintf(diagMsg, "ContBufferSetup[2] Error: %d", err);
+        SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
+        return 0;
+    }
 
     /* ---- Initialize Queue Management with Adaptive Capacity ---- */
     /* If previous session had high queue depth, increase capacity to avoid overruns */
@@ -1671,11 +1728,20 @@ int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
         queueLowWater = 4;    /* 20% */
     }
     
-    /* Reset diagnostic counters for this session */
-    bufferCopiesDropped = 0;
-    maxQueueDepthObserved = 0;
-    currentQueueDepth = 0;  /* Reset queue depth counter */
-    queueBackPressure = 0;
+    /* Reset all diagnostic counters for this session */
+    bufferCopiesDropped    = 0;
+    maxQueueDepthObserved  = 0;
+    currentQueueDepth      = 0;
+    queueBackPressure      = 0;
+    diagPollCount          = 0;
+    diagHalfReadyCount     = 0;
+    diagFStopCount         = 0;
+    diagQueuedCount        = 0;
+    diagPlotTriggeredCount = 0;
+    diagPlotEnteredCount   = 0;
+    diagPlotCompletedCount = 0;
+    diagFirstRawSample     = 0;
+    diagFirstRawValid      = 0;
 
     /* Launch Threads */
     CmtNewTSQ(queueMaxCapacity, halfBufferSize * sizeof(U16), OPT_TSQ_DYNAMIC_SIZE, &dmaQueue);
@@ -1684,14 +1750,29 @@ int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
     CmtScheduleThreadPoolFunction(DEFAULT_THREAD_POOL_HANDLE, DiskWriterThreadFunction_Optimized, NULL, &consumerThreadID);
     CmtScheduleThreadPoolFunction(DEFAULT_THREAD_POOL_HANDLE, HardwarePollThreadFunction, NULL, &producerThreadID);
 
-    /* Arm hardware with totalScansPerCh mapping to the hardware DataCnt register */
-    err = WD_AI_ContScanChannels(adcCard, 1, adcBufId, totalScansPerCh, 1, 1, ASYNCH_OP);
+    /* Arm hardware using ContReadMultiChannels — the simultaneous-sampling equivalent of
+       the ContReadChannel call in the working example (EXAMPLE_DBCODE_PostExtTrg).
+       ContScanChannels is designed for multiplexed (scanning) ADCs and does not reliably
+       produce halfReady events on the simultaneous-sampling PCI-9846H.
+       totalScansPerCh = scans per channel per half-buffer = halfBufferSize / numChannels. */
+    chans[0] = 0;
+    chans[1] = 1;
+    /* ContReadMultiChannels has NO reTrgCnt parameter — trigger count is set only
+       via WD_AI_Trig_Config (10th parameter, now 65535).
+       Parameters here: ReadScans=totalScansPerCh (scans per channel per half-buffer),
+       ScanIntrv=1, SampIntrv=1 (external timebase clocks the rate, these are minimised).
+       adcBufId1 = ID of the FIRST registered buffer so hardware starts filling
+       dmaBuffer1 first, matching the poll thread's activeBuf==0 assumption. */
+    err = WD_AI_ContReadMultiChannels(adcCard, ADC_NUM_CHANNELS, chans, adcBufId1, totalScansPerCh, 1, 1, ASYNCH_OP);
 
     if (err == NoError) {
         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Acquisition Armed [Dual-Buffer Polled]");
         SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
         SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 0);
-        SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,   ATTR_DIMMED, 0);  /* Enable Record button */
+        SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,    ATTR_DIMMED, 0);
+        /* Start diagnostic timer — fires AdcPollTimerCB every 500ms */
+        SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_TIMER_POLL, ATTR_INTERVAL, 0.5);
+        SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_TIMER_POLL, ATTR_ENABLED,  1);
     } else {
         AdcStopCB(0, 0, EVENT_COMMIT, NULL, 0, 0);
         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "Execution Failed");
@@ -1858,9 +1939,12 @@ int CVICALLBACK AdcStopCB (int p, int c, int ev, void *cbd, int e1, int e2)
         SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagMsg);
     }
     
+    /* Disable diagnostic poll timer */
+    SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_TIMER_POLL, ATTR_ENABLED, 0);
+
     SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
     SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
-    
+
     ADC_PlotFFT_Deferred(NULL);
 
     return 0;
@@ -1907,8 +1991,51 @@ int CVICALLBACK AdcReleaseCB (int p, int c, int ev, void *cbd, int e1, int e2)
     return 0;
 }
 
-/* Poll timer: check if async acquisition has completed */
-int CVICALLBACK AdcPollTimerCB (int p, int c, int ev, void *cbd, int e1, int e2) { return 0; }
+/* Poll timer: display pipeline diagnostic counters every 500ms during acquisition.
+ * Reading volatile counters on the main thread while threads write them is safe for
+ * display — a torn read of a single counter at worst shows a value off by one tick.
+ *
+ * Pipeline stages shown:
+ *   Poll   — WD_AI_AsyncDblBufferHalfReady calls     (loop alive)
+ *   HR     — halfReady == TRUE count                  (hardware triggers arriving)
+ *   FS     — fStop == TRUE count                      (hardware stop/error)
+ *   Qd     — successful queue writes                  (data past the copy stage)
+ *   PTrg   — PostDeferredCall posted for plot          (plot path entered)
+ *   PEntr  — ADC_PlotFFT_Deferred entered              (deferred callback executing)
+ *   PDone  — ADC_PlotFFT_Deferred completed            (all graph calls finished)
+ *   Raw0   — first raw U16 from first DMA half-buffer  (DMA data sanity: ~0x8000 = 0V)
+ */
+int CVICALLBACK AdcPollTimerCB (int p, int c, int ev, void *cbd, int e1, int e2)
+{
+    char diagLine[256];
+    if (ev != EVENT_TIMER_TICK) return 0;
+    if (!adcRunning) return 0;
+
+    if (diagFirstRawValid) {
+        sprintf(diagLine,
+            "Poll:%lu HR:%lu FS:%lu Qd:%lu | PTrg:%lu PEntr:%lu PDone:%lu | Raw0:0x%04X",
+            (unsigned long)diagPollCount,
+            (unsigned long)diagHalfReadyCount,
+            (unsigned long)diagFStopCount,
+            (unsigned long)diagQueuedCount,
+            (unsigned long)diagPlotTriggeredCount,
+            (unsigned long)diagPlotEnteredCount,
+            (unsigned long)diagPlotCompletedCount,
+            (unsigned int) diagFirstRawSample);
+    } else {
+        sprintf(diagLine,
+            "Poll:%lu HR:%lu FS:%lu Qd:%lu | PTrg:%lu PEntr:%lu PDone:%lu | Raw0:pending",
+            (unsigned long)diagPollCount,
+            (unsigned long)diagHalfReadyCount,
+            (unsigned long)diagFStopCount,
+            (unsigned long)diagQueuedCount,
+            (unsigned long)diagPlotTriggeredCount,
+            (unsigned long)diagPlotEnteredCount,
+            (unsigned long)diagPlotCompletedCount);
+    }
+    SetCtrlVal(adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, diagLine);
+    return 0;
+}
 
 /* One-shot save (still available via Save button) */
 int CVICALLBACK AdcSaveCB (int p, int c, int ev, void *cbd, int e1, int e2)

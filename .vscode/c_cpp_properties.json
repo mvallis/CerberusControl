@@ -3,13 +3,17 @@
         {
             "name": "Win32",
             "includePath": [
-                "${workspaceFolder}/**"
+                "${workspaceFolder}/**",
+                "C:/Program Files (x86)/National Instruments/CVI2020/include",
+                "C:/Program Files (x86)/National Instruments/Shared/CVI/include"
             ],
             "defines": [
                 "_DEBUG",
                 "UNICODE",
                 "_UNICODE"
-            ]
+            ],
+            "compilerPath": "C:/Program Files (x86)/National Instruments/CVI2020/bin/cvi.exe",
+            "cStandard": "c89"
         }
     ],
     "version": 4
