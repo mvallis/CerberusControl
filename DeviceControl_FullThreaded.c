@@ -827,7 +827,7 @@ int CVICALLBACK DdsDivRatioCB (int p, int c, int ev, void *cbd, int e1, int e2)
  * Constants
  *---------------------------------------------------------------------------*/
 #define ADC_NUM_CH          2U
-#define HALF_BUF_SAMPLES    262144U     /* 2^18 U16 samples per half-buffer          */
+#define HALF_BUF_SAMPLES    262144U     /* 2^18 U16 samples per half-buffer          */ //Lets make this 8 or 16 times bigger, and the related values the same increase?
 #define SCANS_PER_HALF      131072U     /* HALF_BUF_SAMPLES / ADC_NUM_CH             */
 #define SAVE_QUEUE_CAP      32          /* 32 × 512 KB = 16 MB queue headroom        */
 #define TSQ_WRITE_MS        200         /* ms to wait before counting a save drop     */
@@ -905,6 +905,7 @@ static void CVICALLBACK ADC_PlotDeferred    (void *data);
 static void CVICALLBACK ADC_StopDeferred    (void *data);
 static double           ADC_RangeToVolts    (int rangeConst);
 static void             ADC_GenerateFilename(char *buf, int bufLen);
+static void             ADC_WriteSidecarHeader (const char *baseName, int mode);
 static void             ADC_StopAcquisition (void);
 static int              ADC_StartCommon     (int mode, U32 reTrgCnt);
 
@@ -955,15 +956,140 @@ static double ADC_RangeToVolts (int rangeConst)
 }
 
 /*---------------------------------------------------------------------------
- * ADC_GenerateFilename — CerberusData_YYYYMMDD_HHMMSS.dat
+ * ADC_GenerateFilename — CerberusData_YYYYMMDD_HHMMSS  (no extension)
+ *
+ *   The caller appends ".dat" when opening the file directly (SAVE_THREAD).
+ *   For SAVE_TOFILE the WD-DASK driver appends ".dat" automatically, so the
+ *   base name must NOT include the extension.
+ *   The sidecar header is always written to "<base>.hdr".
  *---------------------------------------------------------------------------*/
 static void ADC_GenerateFilename (char *buf, int bufLen)
 {
     int month, day, year, hours, minutes, seconds;
     GetSystemDate (&month, &day, &year);
     GetSystemTime (&hours, &minutes, &seconds);
-    snprintf (buf, bufLen, "CerberusData_%04d%02d%02d_%02d%02d%02d.dat",
+    snprintf (buf, bufLen, "CerberusData_%04d%02d%02d_%02d%02d%02d",
               year, month, day, hours, minutes, seconds);
+}
+
+/*---------------------------------------------------------------------------
+ * ADC_WriteSidecarHeader — write a .hdr text file alongside the .dat file
+ *
+ *   Captures all user-defined configuration at the moment recording starts:
+ *   ADC settings, DDS sweep parameters, timing / divider chain, and the
+ *   save mode used.  baseName is the path without any extension.
+ *---------------------------------------------------------------------------*/
+static void ADC_WriteSidecarHeader (const char *baseName, int mode)
+{
+    char hdrPath[512];
+    FILE *hdr;
+    int  month, day, year, hours, minutes, seconds;
+
+    /* --- ADC UI values --- */
+    int    timebase, impedance, range, sampsPerTrig;
+
+    /* --- DDS UI values --- */
+    double clockMHz, startF, stopF, period, cwFreq;
+    int    hmcDiv, progDiv, sampsPerChirp, chirpMode;
+
+    /* --- DDS actual / computed values --- */
+    double actStart, actStop, actPeriod;
+    double syncClkMHz, adcClkMHz, trigFreqHz, drctrlPeriod;
+    int    chirpSteps, deadSamples, minProgDiv;
+    double calcPeriod, deadTime;
+
+    snprintf (hdrPath, sizeof (hdrPath), "%s.hdr", baseName);
+    hdr = fopen (hdrPath, "w");
+    if (!hdr) return;
+
+    /* Timestamp */
+    GetSystemDate (&month, &day, &year);
+    GetSystemTime (&hours, &minutes, &seconds);
+    fprintf (hdr, "[Timestamp]\n");
+    fprintf (hdr, "Date = %04d-%02d-%02d\n", year, month, day);
+    fprintf (hdr, "Time = %02d:%02d:%02d\n\n", hours, minutes, seconds);
+
+    /* Save mode */
+    fprintf (hdr, "[SaveMode]\n");
+    fprintf (hdr, "Mode = %s\n\n",
+             (mode == SAVE_THREAD) ? "SAVE_THREAD" : "SAVE_TOFILE");
+
+    /* ---- ADC configuration ---- */
+    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_TIMEBASE,     &timebase);
+    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_IMPEDANCE,    &impedance);
+    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_RANGE,        &range);
+    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &sampsPerTrig);
+
+    if (range < 0 || range >= ADC_RANGE_TABLE_LEN)
+        range = ADC_RANGE_TABLE_LEN - 1;
+
+    fprintf (hdr, "[ADC]\n");
+    fprintf (hdr, "NumChannels       = %u\n", ADC_NUM_CH);
+    fprintf (hdr, "HalfBufSamples    = %u\n", HALF_BUF_SAMPLES);
+    fprintf (hdr, "ScansPerHalf      = %u\n", SCANS_PER_HALF);
+    fprintf (hdr, "SampsPerTrig      = %d\n", sampsPerTrig);
+    fprintf (hdr, "RangeIndex        = %d\n", range);
+    fprintf (hdr, "VoltageRange_V    = %.3f\n", ADC_RangeToVolts (adcRangeTable[range]));
+    fprintf (hdr, "TimebaseIndex     = %d\n", timebase);
+    fprintf (hdr, "ImpedanceIndex    = %d\n", impedance);
+    fprintf (hdr, "DataType          = U16\n\n");
+
+    /* ---- DDS configuration ---- */
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_RING_CHIRP_MODE,    &chirpMode);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CLOCK_MHZ,      &clockMHz);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_START_FREQ,     &startF);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_STOP_FREQ,      &stopF);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_PERIOD,         &period);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CW_FREQ,        &cwFreq);
+
+    fprintf (hdr, "[DDS_Settings]\n");
+    fprintf (hdr, "ChirpMode         = %d\n", chirpMode);
+    fprintf (hdr, "ClockMHz          = %.6f\n", clockMHz);
+    fprintf (hdr, "StartFreqMHz      = %.6f\n", startF);
+    fprintf (hdr, "StopFreqMHz       = %.6f\n", stopF);
+    fprintf (hdr, "RequestedPeriod_us= %.6f\n", period);
+    fprintf (hdr, "CW_FreqMHz        = %.6f\n\n", cwFreq);
+
+    /* ---- DDS actual values (set by last DdsStartCB) ---- */
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_START,      &actStart);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_STOP,       &actStop);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_PERIOD,     &actPeriod);
+
+    fprintf (hdr, "[DDS_Actual]\n");
+    fprintf (hdr, "ActualStartMHz    = %.6f\n", actStart);
+    fprintf (hdr, "ActualStopMHz     = %.6f\n", actStop);
+    fprintf (hdr, "ActualPeriod_us   = %.6f\n\n", actPeriod);
+
+    /* ---- Divider / timing chain ---- */
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_HMC_DIV,        &hmcDiv);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_PROG_DIV,       &progDiv);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_SAMPS_PER_CHI,  &sampsPerChirp);
+
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_SYNC_CLK,       &syncClkMHz);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ADC_CLK,        &adcClkMHz);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_TRIG_FREQ,      &trigFreqHz);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DRCTRL_PERIOD,  &drctrlPeriod);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CHIRP_STEPS,    &chirpSteps);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CALC_PERIOD,    &calcPeriod);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DEAD_TIME,      &deadTime);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DEAD_SAMPLES,   &deadSamples);
+    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_MIN_PROG_DIV,   &minProgDiv);
+
+    fprintf (hdr, "[Timing]\n");
+    fprintf (hdr, "HMC432_Divider    = %d\n", hmcDiv);
+    fprintf (hdr, "ProgDivider       = %d\n", progDiv);
+    fprintf (hdr, "SampsPerChirp     = %d\n", sampsPerChirp);
+    fprintf (hdr, "SyncClkMHz        = %.6f\n", syncClkMHz);
+    fprintf (hdr, "ADC_ClkMHz        = %.6f\n", adcClkMHz);
+    fprintf (hdr, "TrigFreqHz        = %.3f\n", trigFreqHz);
+    fprintf (hdr, "DRCTRL_Period_us  = %.6f\n", drctrlPeriod);
+    fprintf (hdr, "ChirpSteps        = %d\n", chirpSteps);
+    fprintf (hdr, "CalcChirpPeriod_us= %.6f\n", calcPeriod);
+    fprintf (hdr, "DeadTime_us       = %.6f\n", deadTime);
+    fprintf (hdr, "DeadSamples       = %d\n", deadSamples);
+    fprintf (hdr, "MinProgDivider    = %d\n", minProgDiv);
+
+    fclose (hdr);
 }
 
 /*---------------------------------------------------------------------------
@@ -1502,10 +1628,13 @@ int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
  *---------------------------------------------------------------------------*/
 int CVICALLBACK AdcRecordCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
+    char datPath[512];
+
     if (ev != EVENT_COMMIT) return 0;
 
     ADC_GenerateFilename (recordPath, sizeof (recordPath));
-    recordFile = fopen (recordPath, "wb");
+    snprintf (datPath, sizeof (datPath), "%s.dat", recordPath);
+    recordFile = fopen (datPath, "wb");
     if (!recordFile)
     {
         SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS,
@@ -1519,6 +1648,7 @@ int CVICALLBACK AdcRecordCB (int p, int c, int ev, void *cbd, int e1, int e2)
         return 0;
     }
 
+    ADC_WriteSidecarHeader (recordPath, SAVE_THREAD);
     SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Recording (thread)");
     return 0;
 }
@@ -1535,6 +1665,7 @@ int CVICALLBACK AdcSaveCB (int p, int c, int ev, void *cbd, int e1, int e2)
     if (ADC_StartCommon (SAVE_TOFILE, RETRIG_CNT_INF) < 0)
         return 0;
 
+    ADC_WriteSidecarHeader (recordPath, SAVE_TOFILE);
     SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Recording (ToFile)");
     return 0;
 }
