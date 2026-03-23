@@ -632,3 +632,156 @@ in ~115 ms, giving comfortable headroom.
 
 The out-of-bounds range clamp in `AdcConfigureCB` previously defaulted to index 1 (±1 V).
 Changed to default to index 0 (±5 V), which is the standard operating range for this system.
+
+---
+
+## 2026-03-23 — Session 4: Calibration, dimming, PSU timer, master view plan
+
+### ADC auto-calibration — background thread implementation
+
+`WD_AD_Auto_Calibration_ALL` previously caused fatal errors / UI hangs when called on the UI
+thread. Now implemented as a background thread:
+
+- `AdcCalThread` — scheduled via `CmtScheduleThreadPoolFunction`, calls
+  `WD_AD_Auto_Calibration_ALL(adcCard)`, posts result via `PostDeferredCall`
+- `ADC_CalDoneDeferred` — runs on UI thread, reports success/failure, restores button states
+- `AdcCalibrateCB` — UI callback, dims Configure/Release/Calibrate while running, guards
+  against concurrent calibration or acquisition
+
+**UIR change required:** Add a command button to the ADC tab panel named `ADC_BTN_CALIBRATE`
+with callback `AdcCalibrateCB`. The code uses `#ifdef TABPANEL_2_ADC_BTN_CALIBRATE` guards so
+it compiles with or without the button present. Position it near Register/Configure.
+
+### Improved button dimming state machine
+
+**During acquisition** (`ADC_StartCommon` success):
+- All start/record/save/single buttons → dimmed
+- Stop → enabled
+- **Configure → dimmed** (new)
+- **Release → dimmed** (new)
+- **Calibrate → dimmed** (new, via `#ifdef`)
+
+**On stop** (`ADC_StopAcquisition`):
+- Stop → dimmed
+- All start/record/save/single buttons → enabled
+- **Configure → enabled** (new)
+- **Release → enabled** (new)
+- **Calibrate → enabled** (new, via `#ifdef`)
+
+**On release** (`AdcReleaseCB`):
+- Previously would auto-stop if acquiring; now **returns with an error message** instead,
+  since the Release button is dimmed during acquisition. The `isAcquiring` guard is retained
+  as a safety net.
+
+### PSU readback timer — disabled during acquisition
+
+The PSU `ReadbackTimerCB` calls `PSU_ReadMeasurements` which performs **6 blocking VISA I/O
+operations** (viWrite + viRead for voltage, current, and power on each of 2 channels) on the
+UI thread. While these calls are blocking, the CVI event loop cannot process `PostDeferredCall`
+requests from the ADC poll/plot threads. This could delay plot updates or cause the deferred
+call queue to back up.
+
+**Fix:**
+- `ADC_StartCommon`: disables `PSU_TAB_PSU_TIMER_READBACK` before returning
+- `ADC_StopAcquisition`: re-enables the timer if `psuSession != VI_NULL`
+
+This means PSU voltage/current readback pauses while the ADC is acquiring, and resumes
+automatically when acquisition stops.
+
+---
+
+### Master View Tab — Design Plan
+
+A new tab (index 0, shifting existing tabs to 1–4) providing a single-pane operational overview
+of the entire radar system. All controls delegate to existing subsystem functions — no duplicate
+logic.
+
+#### UIR Changes Required (CVI UIR Editor)
+
+1. Add a new tab page at index 0 titled "Master" to `MAIN_PANEL_MAIN_PANEL_TAB`
+2. Shift existing tab indices: PSU→1, Relay→2, DDS→3, ADC→4
+3. Update `GetPanelHandleFromTabPage` calls in `main()` accordingly
+4. Add the following controls to the Master tab panel:
+
+#### Proposed Control Layout
+
+```
++----------------------------------------------------------------------+
+|  MASTER VIEW                                                          |
++----------------------------------------------------------------------+
+|                                                                       |
+|  [PSU STATUS]                          [SYSTEM CONTROLS]              |
+|  CH1: ####V  ####A  [meter]           [  ALL PSU ON/OFF  ]           |
+|  CH2: ####V  ####A  [meter]           [  TX RELAY (RLY1)  ] [LED]   |
+|                                        [  DDS START/STOP   ] [LED]   |
+|                                                                       |
+|  [STATUS MESSAGES]                                                    |
+|  DDS: Triggered sweep 500-1000 MHz                                   |
+|  ADC: Acquiring (monitor)                                             |
+|                                                                       |
+|  [ADC CONTROLS]                                                       |
+|  [ START ACQ ]  [ START RECORD ]  [  STOP  ]                         |
+|                                                                       |
+|  [FFT / RANGE PLOT]                                                   |
+|  +----------------------------------------------------------------+  |
+|  |                                                                |  |
+|  |  (graph — same FFT magnitude data as ADC tab, replotted here) |  |
+|  |                                                                |  |
+|  +----------------------------------------------------------------+  |
++----------------------------------------------------------------------+
+```
+
+#### Controls to Add in UIR Editor
+
+| Control type | Suggested constant name | Purpose |
+| --- | --- | --- |
+| Numeric (indicator) | `MASTER_NUM_CH1_VOLT` | CH1 voltage readback |
+| Numeric (indicator) | `MASTER_NUM_CH1_CURR` | CH1 current readback |
+| Numeric (indicator) | `MASTER_NUM_CH2_VOLT` | CH2 voltage readback |
+| Numeric (indicator) | `MASTER_NUM_CH2_CURR` | CH2 current readback |
+| Scale (meter) | `MASTER_CH1_METER` | CH1 current meter (visual) |
+| Scale (meter) | `MASTER_CH2_METER` | CH2 current meter (visual) |
+| Command button | `MASTER_BTN_PSU_ALL` | Toggle all PSU outputs, callback: `MasterPsuAllCB` |
+| Command button | `MASTER_BTN_TX_RELAY` | Toggle TX relay (relay 1), callback: `MasterTxRelayCB` |
+| LED | `MASTER_LED_TX_RELAY` | TX relay state indicator |
+| Command button | `MASTER_BTN_DDS` | Start/stop DDS chirp, callback: `MasterDdsCB` |
+| LED | `MASTER_LED_DDS` | DDS active indicator |
+| Command button | `MASTER_BTN_ACQ_START` | Start ADC monitor, callback: `MasterAcqStartCB` |
+| Command button | `MASTER_BTN_ACQ_RECORD` | Start ADC recording, callback: `MasterAcqRecordCB` |
+| Command button | `MASTER_BTN_ACQ_STOP` | Stop ADC, callback: `MasterAcqStopCB` |
+| Graph | `MASTER_GRAPH_FFT` | Range-domain FFT plot (mirrors ADC FFT graph) |
+| Text message | `MASTER_MSG_DDS_STATUS` | DDS status string |
+| Text message | `MASTER_MSG_ADC_STATUS` | ADC status string |
+| Timer | `MASTER_TIMER_UPDATE` | Periodic refresh (~500 ms), callback: `MasterUpdateTimerCB` |
+
+#### Code Architecture
+
+- **`MasterUpdateTimerCB`**: Reads PSU values from the existing readback numerics on the PSU tab
+  (via `GetCtrlVal` on `PSU_TAB_PSU_NUM_CH1_VOLT_READ` etc.) and mirrors them to the Master tab
+  numerics and meters. Also reads relay/DDS state from existing globals (`relay1State`,
+  `ddsSweepActive`) and updates LEDs. This avoids duplicate VISA calls — the master tab is a
+  **consumer** of data already acquired by the subsystem tabs.
+
+- **`MasterPsuAllCB`**: Calls the same logic as `PsuAllOutCB` — toggles all outputs.
+
+- **`MasterTxRelayCB`**: Calls the same logic as `Rl1CB` — toggles relay 1 (TX).
+
+- **`MasterDdsCB`**: If `ddsSweepActive`, calls `dds_powerdown()` (like `DdsStopCB`).
+  Otherwise calls the DDS start sequence (like `DdsStartCB`), reading parameters from the
+  DDS tab controls.
+
+- **`MasterAcqStartCB` / `MasterAcqRecordCB` / `MasterAcqStopCB`**: Thin wrappers that call
+  `ADC_StartCommon` / file setup / `ADC_StopAcquisition` respectively, mirroring the ADC tab
+  callbacks. Button dimming on the Master tab must be synchronized with the ADC tab.
+
+- **FFT plot mirroring**: In `ADC_PlotDeferred`, after plotting to `TABPANEL_2_ADC_GRAPH_FFT`,
+  also plot the same data to `MASTER_GRAPH_FFT` (guarded by `#ifdef MASTER_GRAPH_FFT`). This
+  ensures both tabs show identical data with zero extra computation.
+
+#### Key Design Principles
+
+1. **No duplicate hardware I/O** — master tab reads from existing globals / UI controls
+2. **Single source of truth** — all state changes go through the existing subsystem functions
+3. **Synchronized dimming** — master buttons mirror the ADC tab dimming state machine
+4. **Timer gated** — `MASTER_TIMER_UPDATE` disabled when PSU is not connected (same pattern
+   as `PSU_TIMER_READBACK`)

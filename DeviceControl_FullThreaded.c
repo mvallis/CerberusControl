@@ -27,11 +27,11 @@
 #include "DeviceControl_FullThreaded.h"
 #include "Wd-dask64.h"
 
-/* DDS resource ring — defined in .h once the UIR string control (TABPANEL_DDS_STR_COM_PORT)
+/* DDS resource ring — defined in .h once the UIR string control (DDS_TAB_DDS_STR_COM_PORT)
    is replaced with a ring control in the CVI UIR Editor.  Until that edit is done this
    falls back to the same control ID so the file still compiles. */
-#ifndef TABPANEL_DDS_RING_RESOURCE
-#define TABPANEL_DDS_RING_RESOURCE  TABPANEL_DDS_STR_COM_PORT
+#ifndef DDS_TAB_DDS_RING_RESOURCE
+#define DDS_TAB_DDS_RING_RESOURCE  DDS_TAB_DDS_STR_COM_PORT
 #endif
 
 
@@ -166,11 +166,11 @@ static void ScanVISAResources (void)
     ClearListCtrl (relayTabHandle, RELAY_TAB_RELAY_RING_RESOURCE);
     ClearListCtrl (psuTabHandle,   PSU_TAB_PSU_RING_RESOURCE);
     /* Only populate the DDS ring after the UIR string control has been replaced
-       with a ring control and TABPANEL_DDS_RING_RESOURCE is a distinct constant.
+       with a ring control and DDS_TAB_DDS_RING_RESOURCE is a distinct constant.
        Until then the #ifndef fallback maps it to the string control ID, and calling
        ClearListCtrl/InsertListItem on a string control is undefined in CVI. */
-#if TABPANEL_DDS_RING_RESOURCE != TABPANEL_DDS_STR_COM_PORT
-    ClearListCtrl (ddsTabHandle,   TABPANEL_DDS_RING_RESOURCE);
+#if DDS_TAB_DDS_RING_RESOURCE != DDS_TAB_DDS_STR_COM_PORT
+    ClearListCtrl (ddsTabHandle,   DDS_TAB_DDS_RING_RESOURCE);
 #endif
 
     if (defaultRM == VI_NULL) return;
@@ -206,8 +206,8 @@ static void ScanVISAResources (void)
         /* 3. Insert into all UI rings using the friendly label */
         InsertListItem (relayTabHandle, RELAY_TAB_RELAY_RING_RESOURCE, -1, displayStr, numResources);
         InsertListItem (psuTabHandle,   PSU_TAB_PSU_RING_RESOURCE,   -1, displayStr, numResources);
-#if TABPANEL_DDS_RING_RESOURCE != TABPANEL_DDS_STR_COM_PORT
-        InsertListItem (ddsTabHandle,   TABPANEL_DDS_RING_RESOURCE,  -1, displayStr, numResources);
+#if DDS_TAB_DDS_RING_RESOURCE != DDS_TAB_DDS_STR_COM_PORT
+        InsertListItem (ddsTabHandle,   DDS_TAB_DDS_RING_RESOURCE,  -1, displayStr, numResources);
 #endif
 
         numResources++;
@@ -544,10 +544,10 @@ static void DDS_UpdateTimingDisplay (void)
     int    adcClkDivTotal, chirpSteps, drctrlSteps, minProgDiv, deadSamples;
     char   warnMsg[256];
 
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CLOCK_MHZ,     &clockMHz);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_HMC_DIV,       &hmcDiv);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_PROG_DIV,      &progDiv);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_SAMPS_PER_CHI, &sampsPerChirp);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CLOCK_MHZ,     &clockMHz);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_HMC_DIV,       &hmcDiv);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_PROG_DIV,      &progDiv);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_SAMPS_PER_CHI, &sampsPerChirp);
 
     if (hmcDiv < 2)         hmcDiv = 2;
     if (progDiv < 1)        progDiv = 1;
@@ -576,15 +576,15 @@ static void DDS_UpdateTimingDisplay (void)
     minProgDiv  = sampsPerChirp + 1;
 
     /* Update indicators */
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_SYNC_CLK,      syncClkMHz);
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ADC_CLK,       adcClkMHz);
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_TRIG_FREQ,     trigFreqHz);
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DRCTRL_PERIOD, drctrlPeriod_us);
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CHIRP_STEPS,   chirpSteps);
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CALC_PERIOD,   calcPeriod_us);
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DEAD_TIME,     deadTime_us);
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DEAD_SAMPLES,  deadSamples);
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_MIN_PROG_DIV,  minProgDiv);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_SYNC_CLK,      syncClkMHz);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_CLK,       adcClkMHz);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TRIG_FREQ,     trigFreqHz);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DRCTRL_PERIOD, drctrlPeriod_us);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CHIRP_STEPS,   chirpSteps);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CALC_PERIOD,   calcPeriod_us);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_TIME,     deadTime_us);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_SAMPLES,  deadSamples);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_MIN_PROG_DIV,  minProgDiv);
 
     /* Validation warnings */
     warnMsg[0] = '\0';
@@ -602,7 +602,7 @@ static void DDS_UpdateTimingDisplay (void)
                  lastActualPeriod_us, drctrlPeriod_us);
     }
 
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_TIMING_WARN, warnMsg);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_TIMING_WARN, warnMsg);
 }
 
 /*===========================================================================
@@ -620,10 +620,10 @@ int CVICALLBACK DdsConnectCB (int p, int c, int ev, void *cbd, int e1, int e2)
     if (ev != EVENT_COMMIT) return 0;
 
     /* Read the selected VISA resource from the ring (e.g. "ASRL19::INSTR") */
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_RING_RESOURCE, &resIdx);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_RESOURCE, &resIdx);
     if (resIdx < 0 || resIdx >= numResources)
     {
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Status: No resource selected");
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Status: No resource selected");
         return 0;
     }
     strncpy (visaStr, resourceList[resIdx], sizeof(visaStr) - 1);
@@ -632,36 +632,36 @@ int CVICALLBACK DdsConnectCB (int p, int c, int ev, void *cbd, int e1, int e2)
     /* DDS uses Win32 serial directly — parse "ASRLxx::INSTR" → "\\.\COMxx" */
     if (strncmp (visaStr, "ASRL", 4) != 0)
     {
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS,
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS,
                     "Status: DDS requires a serial (ASRL) resource");
         return 0;
     }
     comNum = (int)strtol (visaStr + 4, &p2, 10);
     if (p2 == visaStr + 4)
     {
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS,
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS,
                     "Status: Could not parse COM number from VISA string");
         return 0;
     }
     sprintf (fullPort, "\\\\.\\COM%d", comNum);
 
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CLOCK_MHZ, &clockMHz);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CLOCK_MHZ, &clockMHz);
     dds_set_com_port (fullPort);
     dds_set_clock (clockMHz * 1e6);
 
     if (!init_dds ())
     {
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Status: Connection FAILED");
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Status: Connection FAILED");
         return 0;
     }
 
     ddsConnected = 1;
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Status: Connected");
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_CONNECT,    ATTR_DIMMED, 1);
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_DISCONNECT, ATTR_DIMMED, 0);
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_INIT_CAL,   ATTR_DIMMED, 0);
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_START,      ATTR_DIMMED, 0);
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_STOP,       ATTR_DIMMED, 1);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Status: Connected");
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_CONNECT,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_DISCONNECT, ATTR_DIMMED, 0);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_INIT_CAL,   ATTR_DIMMED, 0);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START,      ATTR_DIMMED, 0);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,       ATTR_DIMMED, 1);
 
     return 0;
 }
@@ -674,12 +674,12 @@ int CVICALLBACK DdsDisconnectCB (int p, int c, int ev, void *cbd, int e1, int e2
     deinit_dds ();
     ddsConnected = 0;
 
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Status: Disconnected");
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_CONNECT,    ATTR_DIMMED, 0);
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_DISCONNECT, ATTR_DIMMED, 1);
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_INIT_CAL,   ATTR_DIMMED, 1);
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_START,      ATTR_DIMMED, 1);
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_STOP,       ATTR_DIMMED, 1);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Status: Disconnected");
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_CONNECT,    ATTR_DIMMED, 0);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_DISCONNECT, ATTR_DIMMED, 1);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_INIT_CAL,   ATTR_DIMMED, 1);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,       ATTR_DIMMED, 1);
 
     return 0;
 }
@@ -688,16 +688,16 @@ int CVICALLBACK DdsInitCalCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
     if (ev != EVENT_COMMIT) return 0;
 
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Resetting & calibrating...");
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Resetting & calibrating...");
     ProcessSystemEvents ();   /* update UI before blocking call */
 
     if (!dds_reset ())
-    { SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Reset FAILED"); return 0; }
+    { SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Reset FAILED"); return 0; }
 
     if (!ad9914_calibrate_dac ())
-    { SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "DAC cal FAILED"); return 0; }
+    { SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "DAC cal FAILED"); return 0; }
 
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Init & calibration OK");
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Init & calibration OK");
     return 0;
 }
 
@@ -711,12 +711,12 @@ int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
 
     if (ev != EVENT_COMMIT) return 0;
 
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_RING_CHIRP_MODE, &chirpMode);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE, &chirpMode);
 
     /* chirpMode: 0 = Triggered (DRCTRL), 1 = Free-run, 2 = CW */
     if (chirpMode == 2)
     {
-        GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CW_FREQ, &cwFreq);
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CW_FREQ, &cwFreq);
 
         if (!dds_reset ())   { return 0; }
         if (!dds_powerup ()) { return 0; }
@@ -729,22 +729,22 @@ int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
         lastActualPeriod_us = 0.0;
 
         sprintf (msg, "CW output: %.6f MHz (requested %.6f MHz)", actCW, cwFreq);
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, msg);
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, msg);
 
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_START,  actCW);
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_STOP,   0.0);
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_PERIOD, 0.0);
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_START,  actCW);
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_STOP,   0.0);
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_PERIOD, 0.0);
     }
     else
     {
         /* ---- Sweep modes (Triggered or Free-run) ---- */
-        GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_START_FREQ, &startF);
-        GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_STOP_FREQ,  &stopF);
-        GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_PERIOD,     &period);
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_START_FREQ, &startF);
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_STOP_FREQ,  &stopF);
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_PERIOD,     &period);
 
         if (startF == stopF)
         {
-            SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS,
+            SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS,
                         "ERROR: Start/Stop frequencies cannot match in Sweep Mode");
             return 0;
         }
@@ -759,7 +759,7 @@ int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
             rampFlags = DRG_NO_DWELL_HIGH;
             if (!dds_drctrl (0))
             {
-                SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "DRCTRL config FAILED");
+                SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "DRCTRL config FAILED");
                 return 0;
             }
         }
@@ -771,7 +771,7 @@ int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
         if (!ad9914_ramp_generator (startF, stopF, period, rampFlags,
                                     &actStart, &actStop, &actPeriod))
         {
-            SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Ramp config FAILED");
+            SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Ramp config FAILED");
             return 0;
         }
 
@@ -779,9 +779,9 @@ int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
 
         ddsSweepActive = 1;
 
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_START,  actStart);
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_STOP,   actStop);
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_PERIOD, actPeriod);
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_START,  actStart);
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_STOP,   actStop);
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_PERIOD, actPeriod);
 
         lastActualPeriod_us = actPeriod;
         DDS_UpdateTimingDisplay ();
@@ -789,11 +789,11 @@ int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
         sprintf (msg, "%s sweep  (%.6f to %.6f MHz, %.3f us)",
                  (chirpMode == 0) ? "Triggered" : "Free-run",
                  actStart, actStop, actPeriod);
-        SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, msg);
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, msg);
     }
 
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_START, ATTR_DIMMED, 1);
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_STOP,  ATTR_DIMMED, 0);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START, ATTR_DIMMED, 1);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,  ATTR_DIMMED, 0);
 
     return 0;
 }
@@ -805,9 +805,9 @@ int CVICALLBACK DdsStopCB (int p, int c, int ev, void *cbd, int e1, int e2)
     dds_powerdown ();
     ddsSweepActive = 0;
 
-    SetCtrlVal (ddsTabHandle, TABPANEL_DDS_MSG_STATUS, "Sweep stopped");
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_START, ATTR_DIMMED, 0);
-    SetCtrlAttribute (ddsTabHandle, TABPANEL_DDS_BTN_STOP,  ATTR_DIMMED, 1);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Sweep stopped");
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START, ATTR_DIMMED, 0);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,  ATTR_DIMMED, 1);
 
     return 0;
 }
@@ -904,6 +904,8 @@ static int  CVICALLBACK HardwarePollThread  (void *data);
 static int  CVICALLBACK DiskSaveThread      (void *data);
 static void CVICALLBACK ADC_PlotDeferred    (void *data);
 static void CVICALLBACK ADC_StopDeferred    (void *data);
+static int  CVICALLBACK AdcCalThread        (void *data);
+static void CVICALLBACK ADC_CalDoneDeferred (void *data);
 static double           ADC_RangeToVolts    (int rangeConst);
 static void             ADC_GenerateFilename(char *buf, int bufLen);
 static void             ADC_WriteSidecarHeader (const char *baseName, int mode);
@@ -1016,10 +1018,10 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode)
              (mode == SAVE_THREAD) ? "SAVE_THREAD" : "SAVE_TOFILE");
 
     /* ---- ADC configuration ---- */
-    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_TIMEBASE,     &timebase);
-    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_IMPEDANCE,    &impedance);
-    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_RANGE,        &range);
-    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, &sampsPerTrig);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TIMEBASE,     &timebase);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_IMPEDANCE,    &impedance);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_RANGE,        &range);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SAMP_PER_TRIG, &sampsPerTrig);
 
     if (range < 0 || range >= ADC_RANGE_TABLE_LEN)
         range = ADC_RANGE_TABLE_LEN - 1;
@@ -1036,12 +1038,12 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode)
     fprintf (hdr, "DataType          = U16\n\n");
 
     /* ---- DDS configuration ---- */
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_RING_CHIRP_MODE,    &chirpMode);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CLOCK_MHZ,      &clockMHz);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_START_FREQ,     &startF);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_STOP_FREQ,      &stopF);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_PERIOD,         &period);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CW_FREQ,        &cwFreq);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE,    &chirpMode);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CLOCK_MHZ,      &clockMHz);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_START_FREQ,     &startF);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_STOP_FREQ,      &stopF);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_PERIOD,         &period);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CW_FREQ,        &cwFreq);
 
     fprintf (hdr, "[DDS_Settings]\n");
     fprintf (hdr, "ChirpMode         = %d\n", chirpMode);
@@ -1052,9 +1054,9 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode)
     fprintf (hdr, "CW_FreqMHz        = %.6f\n\n", cwFreq);
 
     /* ---- DDS actual values (set by last DdsStartCB) ---- */
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_START,      &actStart);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_STOP,       &actStop);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ACT_PERIOD,     &actPeriod);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_START,      &actStart);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_STOP,       &actStop);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_PERIOD,     &actPeriod);
 
     fprintf (hdr, "[DDS_Actual]\n");
     fprintf (hdr, "ActualStartMHz    = %.6f\n", actStart);
@@ -1062,19 +1064,19 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode)
     fprintf (hdr, "ActualPeriod_us   = %.6f\n\n", actPeriod);
 
     /* ---- Divider / timing chain ---- */
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_HMC_DIV,        &hmcDiv);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_PROG_DIV,       &progDiv);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_SAMPS_PER_CHI,  &sampsPerChirp);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_HMC_DIV,        &hmcDiv);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_PROG_DIV,       &progDiv);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_SAMPS_PER_CHI,  &sampsPerChirp);
 
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_SYNC_CLK,       &syncClkMHz);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_ADC_CLK,        &adcClkMHz);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_TRIG_FREQ,      &trigFreqHz);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DRCTRL_PERIOD,  &drctrlPeriod);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CHIRP_STEPS,    &chirpSteps);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_CALC_PERIOD,    &calcPeriod);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DEAD_TIME,      &deadTime);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_DEAD_SAMPLES,   &deadSamples);
-    GetCtrlVal (ddsTabHandle, TABPANEL_DDS_NUM_MIN_PROG_DIV,   &minProgDiv);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_SYNC_CLK,       &syncClkMHz);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_CLK,        &adcClkMHz);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TRIG_FREQ,      &trigFreqHz);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DRCTRL_PERIOD,  &drctrlPeriod);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CHIRP_STEPS,    &chirpSteps);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CALC_PERIOD,    &calcPeriod);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_TIME,      &deadTime);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_SAMPLES,   &deadSamples);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_MIN_PROG_DIV,   &minProgDiv);
 
     fprintf (hdr, "[Timing]\n");
     fprintf (hdr, "HMC432_Divider    = %d\n", hmcDiv);
@@ -1232,10 +1234,10 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
     }
 
     /* ---- Time-domain plot ---- */
-    DeleteGraphPlot (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, -1, VAL_DELAYED_DRAW);
-    PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, ch0, (int)scans,
+    DeleteGraphPlot (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, -1, VAL_DELAYED_DRAW);
+    PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ch0, (int)scans,
            VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
-    PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, ch1, (int)scans,
+    PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ch1, (int)scans,
            VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
 
     /* ---- FFT — only when scans is a power of 2 (>= 4) ---- */
@@ -1268,10 +1270,10 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
         }
 
         /* Plot FFT magnitude (positive-frequency half only) */
-        DeleteGraphPlot (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, -1, VAL_DELAYED_DRAW);
-        PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, fftMag0, (int)halfN,
+        DeleteGraphPlot (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, -1, VAL_DELAYED_DRAW);
+        PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, fftMag0, (int)halfN,
                VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
-        PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, fftMag1, (int)halfN,
+        PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, fftMag1, (int)halfN,
                VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
     }
 
@@ -1323,12 +1325,18 @@ static void ADC_StopAcquisition (void)
         recordFile = NULL;
     }
 
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_TIMER_POLL,  ATTR_ENABLED, 0);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,    ATTR_DIMMED, 0);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SAVE,      ATTR_DIMMED, 0);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SINGLE,    ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_TIMER_POLL,    ATTR_ENABLED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
+
+    /* Re-enable PSU readback timer if PSU is connected */
+    if (psuSession != VI_NULL)
+        SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_TIMER_READBACK, ATTR_ENABLED, 1);
 }
 
 /*---------------------------------------------------------------------------
@@ -1343,7 +1351,7 @@ static void CVICALLBACK ADC_StopDeferred (void *data)
               (unsigned)diagFStopCount,
               (unsigned)diagSaveWritten);
     ADC_StopAcquisition ();
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
 }
 
 /*---------------------------------------------------------------------------
@@ -1359,12 +1367,12 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
 
     if (!adcConfigured)
     {
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Configure first");
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Configure first");
         return -1;
     }
     if (isAcquiring)
     {
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Already running");
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Already running");
         return -1;
     }
 
@@ -1382,7 +1390,7 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     if (err != NoError)
     {
         snprintf (msg, sizeof(msg), "ADC: Trig_Config failed (%d)", (int)err);
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
         return -1;
     }
 
@@ -1393,7 +1401,7 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     if (err != NoError)
     {
         snprintf (msg, sizeof(msg), "ADC: AsyncDblBufferMode failed (%d)", (int)err);
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
         return -1;
     }
 
@@ -1408,7 +1416,7 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     {
         ADC_FreeBuffer (&hDmaBuffer1, &dmaBuffer1);
         ADC_FreeBuffer (&hDmaBuffer2, &dmaBuffer2);
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS,
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS,
                     "ADC: DMA buffer allocation failed");
         return -1;
     }
@@ -1418,14 +1426,14 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     if (err != NoError)
     {
         snprintf (msg, sizeof(msg), "ADC: ContBufferSetup buf1 failed (%d)", (int)err);
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
         return -1;
     }
     err = WD_AI_ContBufferSetup (adcCard, dmaBuffer2, HALF_BUF_SAMPLES, &secondBufId);
     if (err != NoError)
     {
         snprintf (msg, sizeof(msg), "ADC: ContBufferSetup buf2 failed (%d)", (int)err);
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
         return -1;
     }
 
@@ -1457,7 +1465,7 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     if (err != NoError)
     {
         snprintf (msg, sizeof(msg), "ADC: ContScanChannels arm failed (%d)", (int)err);
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
         return -1;
     }
 
@@ -1466,14 +1474,14 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     {
         if (CmtNewTSQ (SAVE_QUEUE_CAP, HALF_BUF_SAMPLES * sizeof (U16), 0, &saveQueue) < 0)
         {
-            SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: TSQ creation failed");
+            SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: TSQ creation failed");
             WD_AI_AsyncClear (adcCard, NULL, NULL);
             return -1;
         }
         if (CmtScheduleThreadPoolFunction (DEFAULT_THREAD_POOL_HANDLE,
                                            DiskSaveThread, NULL, &saveThreadID) < 0)
         {
-            SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Save thread failed");
+            SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Save thread failed");
             CmtDiscardTSQ (saveQueue); saveQueue = 0;
             WD_AI_AsyncClear (adcCard, NULL, NULL);
             return -1;
@@ -1486,7 +1494,7 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
                                        HardwarePollThread, NULL, &pollThreadID) < 0)
     {
         isAcquiring = 0;
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Poll thread failed");
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Poll thread failed");
         if (saveThreadID != 0)
         {
             CmtWaitForThreadPoolFunctionCompletion (DEFAULT_THREAD_POOL_HANDLE,
@@ -1500,15 +1508,21 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     }
 
     /* Enable diagnostic timer */
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_TIMER_POLL, ATTR_INTERVAL, 0.5);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_TIMER_POLL, ATTR_ENABLED,  1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_TIMER_POLL, ATTR_INTERVAL, 0.5);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_TIMER_POLL, ATTR_ENABLED,  1);
 
-    /* Update button states */
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 0);
+    /* Update button states — dim everything except Stop while acquiring */
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
+
+    /* Suspend PSU readback timer — its blocking VISA I/O on the UI thread
+       can delay processing of PostDeferredCall plot updates */
+    SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_TIMER_READBACK, ATTR_ENABLED, 0);
 
     return 0;
 }
@@ -1549,16 +1563,16 @@ int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
     if (ev != EVENT_COMMIT) return 0;
     if (adcRegistered)
     {
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Already registered");
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Already registered");
         return 0;
     }
 
-    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_CARD_NUM, &cardNum);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_CARD_NUM, &cardNum);
     handle = WD_Register_Card (PCI_9846H, (U16)cardNum);
     if (handle < 0)
     {
         snprintf (msg, sizeof(msg), "ADC: Register_Card failed (%d)", (int)handle);
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
         return 0;
     }
 
@@ -1566,14 +1580,80 @@ int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
     adcRegistered = 1;
     adcConfigured = 0;
 
-    /* NOTE: WD_AD_Auto_Calibration_ALL is omitted here — it blocks the UI thread
-       indefinitely on this card/driver combination (previously caused fatal errors
-       and hangs).  Calibration can be re-introduced later via a dedicated background
-       thread with a separate button if needed. */
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Registered OK");
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Registered OK");
 
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
+#ifdef ADC_TAB_ADC_BTN_CALIBRATE
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 0);
+#endif
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * ADC auto-calibration — runs in a background thread to avoid blocking the UI.
+ *   WD_AD_Auto_Calibration_ALL can take several seconds and previously caused
+ *   fatal errors / hangs when called on the UI thread.
+ *---------------------------------------------------------------------------*/
+static volatile int adcCalibrating = 0;
+static volatile I16 adcCalResult   = 0;
+
+static int CVICALLBACK AdcCalThread (void *data)
+{
+    adcCalResult = WD_AD_Auto_Calibration_ALL (adcCard);
+    PostDeferredCall ((DeferredCallbackPtr)ADC_CalDoneDeferred, NULL);
+    return 0;
+}
+
+static void CVICALLBACK ADC_CalDoneDeferred (void *data)
+{
+    adcCalibrating = 0;
+
+    if (adcCalResult == NoError)
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Calibration OK");
+    else
+    {
+        char msg[128];
+        snprintf (msg, sizeof(msg), "ADC: Calibration failed (%d)", (int)adcCalResult);
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
+    }
+
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
+#ifdef ADC_TAB_ADC_BTN_CALIBRATE
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 0);
+#endif
+}
+
+int CVICALLBACK AdcCalibrateCB (int p, int c, int ev, void *cbd, int e1, int e2)
+{
+    CmtThreadFunctionID calThreadID;
+
+    if (ev != EVENT_COMMIT) return 0;
+
+    if (!adcRegistered)
+    {
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Register first");
+        return 0;
+    }
+    if (isAcquiring || adcCalibrating)
+    {
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Busy");
+        return 0;
+    }
+
+    adcCalibrating = 1;
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Calibrating...");
+
+    /* Dim buttons while calibration runs */
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
+#ifdef ADC_TAB_ADC_BTN_CALIBRATE
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
+#endif
+
+    CmtScheduleThreadPoolFunction (DEFAULT_THREAD_POOL_HANDLE,
+                                   AdcCalThread, NULL, &calThreadID);
     return 0;
 }
 
@@ -1589,22 +1669,22 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
     if (ev != EVENT_COMMIT) return 0;
     if (!adcRegistered)
     {
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Register first");
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Register first");
         return 0;
     }
     if (isAcquiring)
     {
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Stop acquisition first");
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Stop acquisition first");
         return 0;
     }
 
     adcConfigured = 0;
 
     /* Read UI settings */
-    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_TIMEBASE,     &timebase);
-    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_IMPEDANCE,    &impedance);
-    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_RING_RANGE,        &range);
-    GetCtrlVal (adcTabHandle, TABPANEL_2_ADC_NUM_SAMP_PER_TRIG, (int *)&plotScans);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TIMEBASE,     &timebase);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_IMPEDANCE,    &impedance);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_RANGE,        &range);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SAMP_PER_TRIG, (int *)&plotScans);
 
     /* Map ring index to the WD-DASK range constant.
        The ring returns its item index (0 or 1); clamp to valid table bounds. */
@@ -1620,7 +1700,7 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
     if (err != NoError)
     {
         snprintf (msg, sizeof(msg), "ADC: AI_Config failed (%d)", (int)err);
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
         return 0;
     }
 
@@ -1630,7 +1710,7 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
     if (err != NoError)
     {
         snprintf (msg, sizeof(msg), "ADC: CH_Config failed (%d)", (int)err);
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
         return 0;
     }
     if (impedance)
@@ -1642,7 +1722,7 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
             {
                 snprintf (msg, sizeof(msg),
                           "ADC: CH_ChangeParam impedance ch%d failed (%d)", i, (int)err);
-                SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+                SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
                 return 0;
             }
         }
@@ -1652,12 +1732,12 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
     snprintf (msg, sizeof(msg),
               "ADC: Configured — ±%.3fV, %u scans/half-buf, plotScans=%u",
               adcVoltScale, SCANS_PER_HALF, plotScans);
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
 
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,    ATTR_DIMMED, 0);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SAVE,      ATTR_DIMMED, 0);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SINGLE,    ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 0);
     return 0;
 }
 
@@ -1668,7 +1748,7 @@ int CVICALLBACK AdcStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
     if (ev != EVENT_COMMIT) return 0;
     if (ADC_StartCommon (SAVE_NONE, RETRIG_CNT_INF) == 0)
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Acquiring (monitor)");
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Acquiring (monitor)");
     return 0;
 }
 
@@ -1686,7 +1766,7 @@ int CVICALLBACK AdcRecordCB (int p, int c, int ev, void *cbd, int e1, int e2)
     recordFile = fopen (datPath, "wb");
     if (!recordFile)
     {
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS,
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS,
                     "ADC: Cannot open output file");
         return 0;
     }
@@ -1698,7 +1778,7 @@ int CVICALLBACK AdcRecordCB (int p, int c, int ev, void *cbd, int e1, int e2)
     }
 
     ADC_WriteSidecarHeader (recordPath, SAVE_THREAD);
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Recording (thread)");
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Recording (thread)");
     return 0;
 }
 
@@ -1715,7 +1795,7 @@ int CVICALLBACK AdcSaveCB (int p, int c, int ev, void *cbd, int e1, int e2)
         return 0;
 
     ADC_WriteSidecarHeader (recordPath, SAVE_TOFILE);
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Recording (ToFile)");
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Recording (ToFile)");
     return 0;
 }
 
@@ -1726,7 +1806,7 @@ int CVICALLBACK AdcSingleShotCB (int p, int c, int ev, void *cbd, int e1, int e2
 {
     if (ev != EVENT_COMMIT) return 0;
     if (ADC_StartCommon (SAVE_NONE, RETRIG_CNT_ONE) == 0)
-        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Single-shot armed");
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Single-shot armed");
     return 0; // This worked on first config, but failed when resetting.
 }
 
@@ -1737,19 +1817,25 @@ int CVICALLBACK AdcStopCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
     if (ev != EVENT_COMMIT) return 0;
     ADC_StopAcquisition ();
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Stopped");
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Stopped");
     return 0;
 }
 
 /*---------------------------------------------------------------------------
- * AdcReleaseCB — stop if running, free DMA buffers, release card
+ * AdcReleaseCB — free DMA buffers and release card
+ *   Release is dimmed during acquisition, so isAcquiring should never be true
+ *   here.  The guard remains as a safety net.
  *---------------------------------------------------------------------------*/
 int CVICALLBACK AdcReleaseCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
     if (ev != EVENT_COMMIT) return 0;
 
     if (isAcquiring)
-        ADC_StopAcquisition ();
+    {
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS,
+                    "ADC: Stop acquisition before releasing");
+        return 0;
+    }
 
     ADC_FreeBuffer (&hDmaBuffer1, &dmaBuffer1);
     ADC_FreeBuffer (&hDmaBuffer2, &dmaBuffer2);
@@ -1762,13 +1848,16 @@ int CVICALLBACK AdcReleaseCB (int p, int c, int ev, void *cbd, int e1, int e2)
         adcConfigured = 0;
     }
 
-    SetCtrlVal       (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Released");
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
-    SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
+    SetCtrlVal       (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Released");
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
+#ifdef ADC_TAB_ADC_BTN_CALIBRATE
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
+#endif
     return 0;
 }
 
@@ -1791,6 +1880,6 @@ int CVICALLBACK AdcPollTimerCB (int p, int c, int ev, void *cbd, int e1, int e2)
               (unsigned)diagPlotDone,
               (unsigned)diagDmaOverrun);
 
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, msg);
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
     return 0;
 }

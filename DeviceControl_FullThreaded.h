@@ -17,6 +17,61 @@
 #define  MAIN_PANEL_MAIN_PANEL_TAB        2       /* control type: tab, callback function: (none) */
 
      /* tab page panel controls */
+#define  ADC_TAB_ADC_NUM_CARD_NUM         2       /* control type: numeric, callback function: (none) */
+#define  ADC_TAB_ADC_RING_TRIG_POL        3       /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_RING_TRIG_SRC        4       /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_RING_TIMEBASE        5       /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_RING_IMPEDANCE       6       /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_RING_RANGE           7       /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_NUM_TRIGGERS         8       /* control type: numeric, callback function: (none) */
+#define  ADC_TAB_ADC_NUM_SAMP_PER_TRIG    9       /* control type: numeric, callback function: (none) */
+#define  ADC_TAB_ADC_BTN_RELEASE          10      /* control type: command, callback function: AdcReleaseCB */
+#define  ADC_TAB_ADC_BTN_STOP_ACQ         11      /* control type: command, callback function: AdcStopCB */
+#define  ADC_TAB_ADC_BTN_SINGLE           12      /* control type: command, callback function: AdcSingleShotCB */
+#define  ADC_TAB_ADC_BTN_START_ACQ        13      /* control type: command, callback function: AdcStartCB */
+#define  ADC_TAB_ADC_BTN_SAVE             14      /* control type: command, callback function: AdcSaveCB */
+#define  ADC_TAB_ADC_BTN_CONFIGURE        15      /* control type: command, callback function: AdcConfigureCB */
+#define  ADC_TAB_ADC_BTN_REGISTER         16      /* control type: command, callback function: AdcRegisterCB */
+#define  ADC_TAB_ADC_GRAPH_TIME           17      /* control type: graph, callback function: (none) */
+#define  ADC_TAB_ADC_GRAPH_FFT            18      /* control type: graph, callback function: (none) */
+#define  ADC_TAB_ADC_MSG_STATUS           19      /* control type: textMsg, callback function: (none) */
+#define  ADC_TAB_ADC_BTN_RECORD           20      /* control type: command, callback function: AdcRecordCB */
+#define  ADC_TAB_ADC_TIMER_POLL           21      /* control type: timer, callback function: AdcPollTimerCB */
+#define  ADC_TAB_ADC_BTN_CALIBRATE        22      /* control type: command, callback function: AdcCalibrateCB */
+
+     /* tab page panel controls */
+#define  DDS_TAB_DDS_NUM_CLOCK_MHZ        2       /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_BTN_INIT_CAL         3       /* control type: command, callback function: DdsInitCalCB */
+#define  DDS_TAB_DDS_BTN_DISCONNECT       4       /* control type: command, callback function: DdsDisconnectCB */
+#define  DDS_TAB_DDS_BTN_STOP             5       /* control type: command, callback function: DdsStopCB */
+#define  DDS_TAB_DDS_BTN_START            6       /* control type: command, callback function: DdsStartCB */
+#define  DDS_TAB_DDS_NUM_SAMPS_PER_CHI    7       /* control type: numeric, callback function: DdsDivRatioCB */
+#define  DDS_TAB_DDS_NUM_PROG_DIV         8       /* control type: numeric, callback function: DdsDivRatioCB */
+#define  DDS_TAB_DDS_NUM_HMC_DIV          9       /* control type: numeric, callback function: DdsDivRatioCB */
+#define  DDS_TAB_DDS_BTN_CONNECT          10      /* control type: command, callback function: DdsConnectCB */
+#define  DDS_TAB_DDS_NUM_PERIOD           11      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_STOP_FREQ        12      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_CW_FREQ          13      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_START_FREQ       14      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_ACT_PERIOD       15      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_ACT_STOP         16      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_MIN_PROG_DIV     17      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_DEAD_SAMPLES     18      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_DEAD_TIME        19      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_DRCTRL_PERIOD    20      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_TRIG_FREQ        21      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_ADC_CLK          22      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_CALC_PERIOD      23      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_CHIRP_STEPS      24      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_SYNC_CLK         25      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_ACT_START        26      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_RING_CHIRP_MODE      27      /* control type: ring, callback function: (none) */
+#define  DDS_TAB_DDS_MSG_STATUS           28      /* control type: textMsg, callback function: (none) */
+#define  DDS_TAB_DDS_TIMING_TEXT          29      /* control type: textMsg, callback function: (none) */
+#define  DDS_TAB_DDS_MSG_TIMING_WARN      30      /* control type: textMsg, callback function: (none) */
+#define  DDS_TAB_DDS_RING_RESOURCE        31      /* control type: ring, callback function: (none) */
+
+     /* tab page panel controls */
 #define  PSU_TAB_PSU_RING_RESOURCE        2       /* control type: ring, callback function: (none) */
 #define  PSU_TAB_PSU_BTN_CONNECT          3       /* control type: command, callback function: PsuConnectCB */
 #define  PSU_TAB_PSU_BTN_DISCONNECT       4       /* control type: command, callback function: PsuDisconnect */
@@ -60,60 +115,6 @@
 #define  RELAY_TAB_RELAY_BTN_RLY2         9       /* control type: command, callback function: Rl2CB */
 #define  RELAY_TAB_RELAY_MSG_STATUS       10      /* control type: textMsg, callback function: (none) */
 
-     /* tab page panel controls */
-#define  TABPANEL_DDS_NUM_CLOCK_MHZ       2       /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_BTN_INIT_CAL        3       /* control type: command, callback function: DdsInitCalCB */
-#define  TABPANEL_DDS_BTN_DISCONNECT      4       /* control type: command, callback function: DdsDisconnectCB */
-#define  TABPANEL_DDS_BTN_STOP            5       /* control type: command, callback function: DdsStopCB */
-#define  TABPANEL_DDS_BTN_START           6       /* control type: command, callback function: DdsStartCB */
-#define  TABPANEL_DDS_NUM_SAMPS_PER_CHI   7       /* control type: numeric, callback function: DdsDivRatioCB */
-#define  TABPANEL_DDS_NUM_PROG_DIV        8       /* control type: numeric, callback function: DdsDivRatioCB */
-#define  TABPANEL_DDS_NUM_HMC_DIV         9       /* control type: numeric, callback function: DdsDivRatioCB */
-#define  TABPANEL_DDS_BTN_CONNECT         10      /* control type: command, callback function: DdsConnectCB */
-#define  TABPANEL_DDS_NUM_PERIOD          11      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_STOP_FREQ       12      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_CW_FREQ         13      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_START_FREQ      14      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_ACT_PERIOD      15      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_ACT_STOP        16      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_MIN_PROG_DIV    17      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_DEAD_SAMPLES    18      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_DEAD_TIME       19      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_DRCTRL_PERIOD   20      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_TRIG_FREQ       21      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_ADC_CLK         22      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_CALC_PERIOD     23      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_CHIRP_STEPS     24      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_SYNC_CLK        25      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_NUM_ACT_START       26      /* control type: numeric, callback function: (none) */
-#define  TABPANEL_DDS_RING_CHIRP_MODE     27      /* control type: ring, callback function: (none) */
-#define  TABPANEL_DDS_MSG_STATUS          28      /* control type: textMsg, callback function: (none) */
-#define  TABPANEL_DDS_TIMING_TEXT         29      /* control type: textMsg, callback function: (none) */
-#define  TABPANEL_DDS_MSG_TIMING_WARN     30      /* control type: textMsg, callback function: (none) */
-#define  TABPANEL_DDS_RING_RESOURCE       31      /* control type: ring, callback function: (none) */
-
-     /* tab page panel controls */
-#define  TABPANEL_2_ADC_NUM_CARD_NUM      2       /* control type: numeric, callback function: (none) */
-#define  TABPANEL_2_ADC_RING_TRIG_POL     3       /* control type: ring, callback function: (none) */
-#define  TABPANEL_2_ADC_RING_TRIG_SRC     4       /* control type: ring, callback function: (none) */
-#define  TABPANEL_2_ADC_RING_TIMEBASE     5       /* control type: ring, callback function: (none) */
-#define  TABPANEL_2_ADC_RING_IMPEDANCE    6       /* control type: ring, callback function: (none) */
-#define  TABPANEL_2_ADC_RING_RANGE        7       /* control type: ring, callback function: (none) */
-#define  TABPANEL_2_ADC_NUM_TRIGGERS      8       /* control type: numeric, callback function: (none) */
-#define  TABPANEL_2_ADC_NUM_SAMP_PER_TRIG 9       /* control type: numeric, callback function: (none) */
-#define  TABPANEL_2_ADC_BTN_RELEASE       10      /* control type: command, callback function: AdcReleaseCB */
-#define  TABPANEL_2_ADC_BTN_STOP_ACQ      11      /* control type: command, callback function: AdcStopCB */
-#define  TABPANEL_2_ADC_BTN_SINGLE        12      /* control type: command, callback function: AdcSingleShotCB */
-#define  TABPANEL_2_ADC_BTN_START_ACQ     13      /* control type: command, callback function: AdcStartCB */
-#define  TABPANEL_2_ADC_BTN_SAVE          14      /* control type: command, callback function: AdcSaveCB */
-#define  TABPANEL_2_ADC_BTN_CONFIGURE     15      /* control type: command, callback function: AdcConfigureCB */
-#define  TABPANEL_2_ADC_BTN_REGISTER      16      /* control type: command, callback function: AdcRegisterCB */
-#define  TABPANEL_2_ADC_GRAPH_TIME        17      /* control type: graph, callback function: (none) */
-#define  TABPANEL_2_ADC_GRAPH_FFT         18      /* control type: graph, callback function: (none) */
-#define  TABPANEL_2_ADC_MSG_STATUS        19      /* control type: textMsg, callback function: (none) */
-#define  TABPANEL_2_ADC_BTN_RECORD        20      /* control type: command, callback function: AdcRecordCB */
-#define  TABPANEL_2_ADC_TIMER_POLL        21      /* control type: timer, callback function: AdcPollTimerCB */
-
 
      /* Control Arrays: */
 
@@ -127,6 +128,7 @@
 
      /* Callback Prototypes: */
 
+int  CVICALLBACK AdcCalibrateCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK AdcConfigureCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK AdcPollTimerCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK AdcRecordCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
