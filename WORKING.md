@@ -535,3 +535,100 @@ isAcquiring = 0
 WD_AI_AsyncClear
 ADC_FreeBuffer   /* buffers released — fresh ones allocated at next Start */
 ```
+
+---
+
+## 2026-03-23 — Session 3: Data saving, sidecar headers, buffer scaling, FFT
+
+### Confirmed: acquisition and saving functional
+
+Both `SAVE_THREAD` (TSQ → fwrite) and `SAVE_TOFILE` (driver-managed) paths successfully record
+binary data to disk. Saved `.dat` files verified by loading in MATLAB — data is 16-bit signed
+(confirmed: PCI-9846H is a **16-bit** ADC, not 14-bit as some documentation suggested).
+
+### Bug fix: `.dat.dat` filename in SAVE_TOFILE mode
+
+The ADLINK driver `WD_AI_ContScanChannelsToFile` **automatically appends `.dat`** to the filename
+it receives (confirmed by examining the ADLINK sample code `CAIDbfFileDiv/CAIDbF.c`, which passes
+`file_name="dbfai"` and prints the result as `'dbfai.dat'`).
+
+`ADC_GenerateFilename` was producing `CerberusData_YYYYMMDD_HHMMSS.dat`, so the driver created
+files named `CerberusData_YYYYMMDD_HHMMSS.dat.dat`.
+
+**Fix:** `ADC_GenerateFilename` now produces the base name without extension
+(`CerberusData_YYYYMMDD_HHMMSS`). The `SAVE_THREAD` path in `AdcRecordCB` explicitly appends
+`.dat` for its `fopen` call. The `SAVE_TOFILE` path passes the base name to the driver, which
+appends `.dat` itself.
+
+### Sidecar header file (`.hdr`)
+
+New function `ADC_WriteSidecarHeader(baseName, mode)` writes a plain-text INI-style `.hdr` file
+alongside each `.dat` recording. Called from both `AdcRecordCB` and `AdcSaveCB`.
+
+Sections and fields captured:
+
+| Section | Fields |
+| --- | --- |
+| `[Timestamp]` | Date, Time |
+| `[SaveMode]` | SAVE_THREAD or SAVE_TOFILE |
+| `[ADC]` | NumChannels, HalfBufSamples, ScansPerHalf, SampsPerTrig, RangeIndex, VoltageRange_V, TimebaseIndex, ImpedanceIndex, DataType |
+| `[DDS_Settings]` | ChirpMode, ClockMHz, StartFreqMHz, StopFreqMHz, RequestedPeriod_us, CW_FreqMHz |
+| `[DDS_Actual]` | ActualStartMHz, ActualStopMHz, ActualPeriod_us |
+| `[Timing]` | HMC432_Divider, ProgDivider, SampsPerChirp, SyncClkMHz, ADC_ClkMHz, TrigFreqHz, DRCTRL_Period_us, ChirpSteps, CalcChirpPeriod_us, DeadTime_us, DeadSamples, MinProgDivider |
+
+### Half-buffer size increased to 2^20 (1,048,576 samples)
+
+**Motivation:** At ~4.56 MS/s per channel (2 channels), the previous 2^18 buffer filled in only
+28.8 ms — very tight for the poll thread to service before overrun. The new 2^20 buffer fills
+in ~115 ms, giving comfortable headroom.
+
+| Constant | Old value | New value |
+| --- | --- | --- |
+| `HALF_BUF_SAMPLES` | 262,144 (2^18, 512 KB) | 1,048,576 (2^20, 2 MB) |
+| `SCANS_PER_HALF` | 131,072 | 524,288 |
+| `SAVE_QUEUE_CAP` | 32 (16 MB total) | 32 (64 MB total) |
+
+`PLOT_SCANS_MAX` remains at 131,072 — decoupled from the DMA buffer size. Only one chirp
+(typically 128–1024 samples) is copied for plotting; the rest of the half-buffer is saved only.
+
+**Memory budget** (at 2^20, 256 MB system limit):
+
+| Resource | Size |
+| --- | --- |
+| DMA buffers × 2 | 4 MB |
+| Save queue (32 × 2 MB) | 64 MB |
+| Plot + FFT static arrays | ~7 MB |
+| DiskSaveThread slot buffer | 2 MB |
+| **Total** | **~77 MB** |
+
+### Data-drop mitigations
+
+1. **`TSQ_WRITE_MS` reduced from 200 to 50 ms** — if the save queue is full, the poll thread
+   blocks for at most 50 ms before dropping the buffer and continuing. This prevents a stalled
+   disk writer from causing the poll thread to miss the next DMA half-ready event (which would
+   trigger a DMA overrun).
+
+2. **`Sleep(0)` yield added to poll thread** — when `halfReady` is false, the thread now yields
+   the CPU via `Sleep(0)` instead of busy-spinning. This prevents the poll thread from consuming
+   100% of one core and starving the disk-writer thread of CPU time.
+
+### FFT with Hann window added to `ADC_PlotDeferred`
+
+**Implementation:**
+- Added `#include <analysis.h>` — uses CVI's built-in `HanWin()` and `FFT()` (from `advanlys.h`)
+- After deinterleaving ch0/ch1 voltage data, the FFT is computed for each channel:
+  1. Copy voltage data to `fftReal[]`, zero `fftImag[]`
+  2. Apply `HanWin(fftReal, N)` (Hann window, in-place)
+  3. `FFT(fftReal, fftImag, N)` — in-place, separate real/imaginary arrays
+  4. Compute magnitude in dB: `20 · log10(√(re² + im²) + 1e-20)`
+  5. Plot positive-frequency half (N/2 bins) on `TABPANEL_2_ADC_GRAPH_FFT`
+- Both channels plotted: CH0 in red, CH1 in blue (same as time-domain graph)
+- FFT only runs when `plotScans` is a power of 2 (≥ 4); silently skips otherwise
+- No zero-padding — FFT length equals `plotScans` (one chirp)
+- The CVI analysis library is included automatically via "Full Runtime Support" in the
+  project settings — no `.lib` file addition required
+
+### Default voltage range corrected
+
+The out-of-bounds range clamp in `AdcConfigureCB` previously defaulted to index 1 (±1 V).
+Changed to default to index 0 (±5 V), which is the standard operating range for this system.

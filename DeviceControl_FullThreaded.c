@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <visa.h>
 #include <formatio.h>
+#include <analysis.h>
 
 #include "dds.h"
 #include "DeviceControl_FullThreaded.h"
@@ -827,11 +828,11 @@ int CVICALLBACK DdsDivRatioCB (int p, int c, int ev, void *cbd, int e1, int e2)
  * Constants
  *---------------------------------------------------------------------------*/
 #define ADC_NUM_CH          2U
-#define HALF_BUF_SAMPLES    262144U     /* 2^18 U16 samples per half-buffer          */ //Lets make this 8 or 16 times bigger, and the related values the same increase?
-#define SCANS_PER_HALF      131072U     /* HALF_BUF_SAMPLES / ADC_NUM_CH             */
-#define SAVE_QUEUE_CAP      32          /* 32 × 512 KB = 16 MB queue headroom        */
-#define TSQ_WRITE_MS        200         /* ms to wait before counting a save drop     */
-#define PLOT_SCANS_MAX      131072U     /* max scans copied to plot buffer (one half) */
+#define HALF_BUF_SAMPLES    1048576U    /* 2^20 U16 samples per half-buffer (2 MB)   */
+#define SCANS_PER_HALF      524288U     /* HALF_BUF_SAMPLES / ADC_NUM_CH             */
+#define SAVE_QUEUE_CAP      32          /* 32 × 2 MB = 64 MB queue headroom          */
+#define TSQ_WRITE_MS        50          /* ms to wait before counting a save drop     */
+#define PLOT_SCANS_MAX      131072U     /* max scans copied to plot buffer (one chirp)*/
 #define RETRIG_CNT_INF      1U          /* reTrgCnt=1 confirmed to give continuous acquisition
                                            with external digital trigger in double-buffer mode.
                                            Larger values (e.g. 65535) are NOT required here —
@@ -1145,9 +1146,13 @@ static int CVICALLBACK HardwarePollThread (void *data)
             if (saveMode == SAVE_TOFILE)
                 WD_AI_AsyncDblBufferToFile (adcCard);
             else
-                WD_AI_AsyncDblBufferHandled (adcCard); //Should it be this or HalfReady?
+                WD_AI_AsyncDblBufferHandled (adcCard);
 
             activeBuf ^= 1;
+        }
+        else
+        {
+            Sleep (0);   /* yield CPU when no half-buffer is ready */
         }
     }
 
@@ -1201,18 +1206,24 @@ static int CVICALLBACK DiskSaveThread (void *data)
 }
 
 /*---------------------------------------------------------------------------
- * ADC_PlotDeferred — runs on UI thread; plots one half-buffer of CH0 + CH1
+ * ADC_PlotDeferred — runs on UI thread; plots one chirp of CH0 + CH1
+ *   in the time domain and (if N is a power of 2) the FFT magnitude.
  *---------------------------------------------------------------------------*/
 static void CVICALLBACK ADC_PlotDeferred (void *data)
 {
     static double ch0[PLOT_SCANS_MAX];
     static double ch1[PLOT_SCANS_MAX];
-    U32    i, scans;
-    double scale;
+    static double fftReal[PLOT_SCANS_MAX];
+    static double fftImag[PLOT_SCANS_MAX];
+    static double fftMag0[PLOT_SCANS_MAX];
+    static double fftMag1[PLOT_SCANS_MAX];
+    U32    i, scans, halfN;
+    double scale, re, im;
 
     scans = plotScans;
     if (scans == 0 || scans > PLOT_SCANS_MAX) { plotBusy = 0; return; }
 
+    /* Deinterleave and convert to volts */
     scale = adcVoltScale / 32768.0;
     for (i = 0; i < scans; i++)
     {
@@ -1220,11 +1231,49 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
         ch1[i] = (double)((I16)plotBuffer[i * 2 + 1]) * scale;
     }
 
+    /* ---- Time-domain plot ---- */
     DeleteGraphPlot (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, -1, VAL_DELAYED_DRAW);
     PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, ch0, (int)scans,
            VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
     PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_TIME, ch1, (int)scans,
            VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+
+    /* ---- FFT — only when scans is a power of 2 (>= 4) ---- */
+    if (scans >= 4 && (scans & (scans - 1)) == 0)
+    {
+        halfN = scans / 2;
+
+        /* CH0: copy, window, FFT, magnitude */
+        memcpy (fftReal, ch0, scans * sizeof (double));
+        memset (fftImag, 0,   scans * sizeof (double));
+        HanWin (fftReal, (ssize_t)scans);
+        FFT    (fftReal, fftImag, (ssize_t)scans);
+        for (i = 0; i < halfN; i++)
+        {
+            re = fftReal[i];
+            im = fftImag[i];
+            fftMag0[i] = 20.0 * log10 (sqrt (re * re + im * im) + 1e-20);
+        }
+
+        /* CH1: copy, window, FFT, magnitude */
+        memcpy (fftReal, ch1, scans * sizeof (double));
+        memset (fftImag, 0,   scans * sizeof (double));
+        HanWin (fftReal, (ssize_t)scans);
+        FFT    (fftReal, fftImag, (ssize_t)scans);
+        for (i = 0; i < halfN; i++)
+        {
+            re = fftReal[i];
+            im = fftImag[i];
+            fftMag1[i] = 20.0 * log10 (sqrt (re * re + im * im) + 1e-20);
+        }
+
+        /* Plot FFT magnitude (positive-frequency half only) */
+        DeleteGraphPlot (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, -1, VAL_DELAYED_DRAW);
+        PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, fftMag0, (int)halfN,
+               VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
+        PlotY (adcTabHandle, TABPANEL_2_ADC_GRAPH_FFT, fftMag1, (int)halfN,
+               VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+    }
 
     diagPlotDone++;
     plotBusy = 0;
@@ -1560,7 +1609,7 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
     /* Map ring index to the WD-DASK range constant.
        The ring returns its item index (0 or 1); clamp to valid table bounds. */
     if (range < 0 || range >= ADC_RANGE_TABLE_LEN)
-        range = ADC_RANGE_TABLE_LEN - 1;          /* default to ±1 V */
+        range = 0;                                /* default to ±5 V */
 
     if (plotScans > PLOT_SCANS_MAX) plotScans = PLOT_SCANS_MAX;
     adcVoltScale = ADC_RangeToVolts (adcRangeTable[range]);
