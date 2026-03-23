@@ -1,4 +1,5 @@
 # Working Log — DeviceControl_FullThreaded
+
 **Date:** 2026-03-19
 **Branch:** `buffOverun`
 **Primary file:** `DeviceControl_FullThreaded.c`
@@ -8,6 +9,7 @@
 ## Overview
 
 The application controls a radar system comprising:
+
 - **KMTronic** relay board (USB/serial)
 - **Siglent SPD3303X** PSU (VISA/serial)
 - **AD9914** DDS chirp generator (serial)
@@ -52,6 +54,7 @@ The session focused entirely on the ADC acquisition pipeline. The hardware was c
 **Problem:** `WD_AI_ContScanChannels` was used. This function is designed for multiplexed (scanning) ADCs and does not reliably produce `halfReady` events on the simultaneous-sampling PCI-9846H.
 
 **Fix:** Replaced with `WD_AI_ContReadMultiChannels`, which is the correct call for simultaneous-sampling hardware:
+
 ```c
 chans[0] = 0;
 chans[1] = 1;
@@ -112,7 +115,7 @@ Fix: Explicit casts `(U16)i` at the call sites in `AdcConfigureCB`.
 **Fix:** Added seven volatile diagnostic counters, a deferred completion counter, and a first-raw-sample capture:
 
 | Counter | Meaning |
-|---|---|
+| --- | --- |
 | `diagPollCount` | Times `AsyncDblBufferHalfReady` was called |
 | `diagHalfReadyCount` | Times `halfReady == TRUE` was returned |
 | `diagFStopCount` | Times `fStop == TRUE` was returned |
@@ -123,7 +126,8 @@ Fix: Explicit casts `(U16)i` at the call sites in `AdcConfigureCB`.
 | `diagFirstRawSample` | First raw U16 value seen in DMA buffer |
 
 These counters are displayed every 500 ms by `AdcPollTimerCB` in a single status line:
-```
+
+```text
 Poll:1250 HR:42 FS:0 Qd:42 | PTrg:10 PEntr:10 PDone:10 | Raw0:0x7FFF
 ```
 
@@ -134,11 +138,14 @@ The diagnostic timer is enabled in `AdcStartCB` on successful arm and disabled i
 ### 9. Diagnostic Timer Enable/Disable
 
 - **Enabled** in `AdcStartCB` after `WD_AI_ContReadMultiChannels` returns `NoError`:
+
   ```c
   SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_TIMER_POLL, ATTR_INTERVAL, 0.5);
   SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_TIMER_POLL, ATTR_ENABLED,  1);
   ```
+
 - **Disabled** in `AdcStopCB` before button state is restored:
+
   ```c
   SetCtrlAttribute(adcTabHandle, TABPANEL_2_ADC_TIMER_POLL, ATTR_ENABLED, 0);
   ```
@@ -148,18 +155,18 @@ The diagnostic timer is enabled in `AdcStartCB` on successful arm and disabled i
 ## Rejected Changes
 
 | Proposed change | Reason rejected |
-|---|---|
+| --- | --- |
 | Change trigger polarity to `WD_AI_TrgNegative` | Hardware provides a rectangular signal; both edges work. Positive-edge POST trigger is preferred. |
 | Change `NumChans` in `WD_AI_ContScanChannels` from `1` to `2` | Per WD-DASK docs, this parameter is the *highest channel index* (0-based), not the count. `1` correctly scans CH0 and CH1. (The entire call was later replaced anyway.) |
 
 ---
 
-## Current Status
+## Current Status (2026-03-19)
 
 Build is clean (no errors, no warnings). The application arms without error and the diagnostic timer fires. The next run will reveal which pipeline stage is failing based on the counter pattern in the status bar:
 
 | Observed pattern | Implied failure |
-|---|---|
+| --- | --- |
 | `Poll` climbing, `HR=0`, `FS=0` | `AsyncDblBufferHalfReady` never signals — DMA not running or wrong API |
 | `HR` climbing, `Raw0=0x0000` | Half-ready fires but DMA buffer is empty — buffer setup issue |
 | `HR` climbing, `Qd=0` | Data received but TSQ write failing (queue full or bad handle) |
@@ -174,11 +181,12 @@ Build is clean (no errors, no warnings). The application arms without error and 
 
 ### Observed diagnostic output (first live test run)
 
-```
+```text
 Poll:1898 HR:1 FS:1898 Qd:1 | PTrg:0 PEntr:0 PDone:0 | Raw0:0xFFFF
 ```
 
 Interpretation:
+
 - `Poll` climbing continuously — the poll thread loop is alive and running.
 - `HR:1` — hardware delivered exactly **one** half-buffer ready event, then stopped.
 - `FS:1898` — `fStop` is permanently asserted from that point onward (the value matches `Poll`, confirming it is set on every poll call after the hardware stopped).
@@ -194,7 +202,7 @@ Interpretation:
 WD_AI_ContReadMultiChannels(adcCard, ADC_NUM_CHANNELS, chans, adcBufId,
                              totalScansPerCh, 1, 1, ASYNCH_OP);
                                               ^  ^
-                                  scanInterval  ReTrgCnt=1  ← STOP AFTER 1 TRIGGER
+                                  scanInterval  ReTrgCnt=1  <- STOP AFTER 1 TRIGGER
 ```
 
 With `ReTrgCnt = 1`, the hardware accepted the first trigger, filled one half-buffer, then permanently stopped. This is why `FS` was permanently asserted and no further `halfReady` events occurred.
@@ -202,6 +210,7 @@ With `ReTrgCnt = 1`, the hardware accepted the first trigger, filled one half-bu
 This is a **fundamental difference** from `WD_AI_ContReadChannel` (used in the working example `EXAMPLE_DBCODE_PostExtTrg.c`), which has no `ReTrgCnt` parameter and runs indefinitely until `WD_AI_AsyncClear` is called. The multi-channel variant requires this to be set explicitly for continuous operation.
 
 **Fix:** Changed `ReTrgCnt` from `1` to `65535`:
+
 ```c
 err = WD_AI_ContReadMultiChannels(adcCard, ADC_NUM_CHANNELS, chans, adcBufId1,
                                    totalScansPerCh, 1, 65535, ASYNCH_OP);
@@ -220,17 +229,18 @@ WD_AI_ContReadMultiChannels(..., adcBufId, ...);                         // star
 The poll thread assumes `activeBuf == 0` means the hardware is filling `dmaBuffer1` first. If the hardware was told to start from `dmaBuffer2`'s ID, the first `halfReady` event would signal that `dmaBuffer2` was filled — but the software would read from `dmaBuffer1` (stale/uninitialised data).
 
 **Fix:** Added a separate `adcBufId1` global to preserve the first buffer's ID:
+
 ```c
 WD_AI_ContBufferSetup(adcCard, dmaBuffer1, halfBufferSize, &adcBufId1); // saved separately
 WD_AI_ContBufferSetup(adcCard, dmaBuffer2, halfBufferSize, &adcBufId);
-WD_AI_ContReadMultiChannels(..., adcBufId1, ...);                        // starts from buf1 ✓
+WD_AI_ContReadMultiChannels(..., adcBufId1, ...);                        // starts from buf1
 ```
 
 ### Expected diagnostic output after fixes
 
 With `ReTrgCnt = 65535` and hardware confirmed working, the expected steady-state output is:
 
-```
+```text
 Poll:NNNN HR:N FS:0 Qd:N | PTrg:N PEntr:N PDone:N | Raw0:0x~~~~
 ```
 
@@ -263,7 +273,7 @@ DDS, PSU, and Relay control code is fully intact and unchanged.
 
 All nine ADC tab callbacks required by the `.uir`/`.h` are present as minimal stubs that display `"ADC: Not yet implemented"` in the status field.
 
-### Result
+### Clean slate result
 
 File reduced from 2111 lines to 829 lines. Clean compile baseline ready for new ADC implementation.
 
@@ -278,7 +288,7 @@ File reduced from 2111 lines to 829 lines. Clean compile baseline ready for new 
 Two save modes, selectable at runtime via different buttons:
 
 | Button | Mode | Mechanism |
-|---|---|---|
+| --- | --- | --- |
 | Start Acq | `SAVE_NONE` | Monitor only — acquire + plot, no file |
 | Record | `SAVE_THREAD` | TSQ producer/consumer → raw U16 binary via `fwrite` thread |
 | Save | `SAVE_TOFILE` | `WD_AI_ContScanChannelsToFile` + `WD_AI_AsyncDblBufferToFile` (driver-managed) |
@@ -287,7 +297,7 @@ Two save modes, selectable at runtime via different buttons:
 ### Key parameters
 
 | Constant | Value | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `HALF_BUF_SAMPLES` | 262144 (2^18) | U16 samples per half-buffer |
 | `SCANS_PER_HALF` | 131072 | Simultaneous scan groups (2 ch) per half |
 | `SAVE_QUEUE_CAP` | 32 | TSQ depth (32 × 512 KB = 16 MB) |
@@ -306,7 +316,7 @@ Poll thread re-arms with `WD_AI_AsyncDblBufferHandled` (or `AsyncDblBufferToFile
 
 ### Diagnostic status line (every 0.5 s)
 
-```
+```text
 Poll:NNNN HR:N FS:N | Sw:N Sd:N | PTrg:N PDn:N | OVR:N
 ```
 
@@ -324,6 +334,204 @@ Both paths are idempotent (guarded by `pollThreadID` / `saveThreadID` checks).
 
 Auto-generated on Record/Save: `CerberusData_YYYYMMDD_HHMMSS.dat` (raw U16, no header).
 
-### Result
+### Rebuild result
 
 File grows from 829 lines to 1478 lines. All nine ADC callbacks implemented.
+
+---
+
+## 2026-03-23 — Session 1: reTrgCnt confirmed; buffer reset attempts
+
+### reTrgCnt = 1 is correct for all modes
+
+Testing the Single Shot button (which uses `RETRIG_CNT_ONE = 1` in `WD_AI_Trig_Config`) produced
+**continuous** data acquisition rather than stopping after one trigger. This confirms that
+`reTrgCnt = 1` in `WD_AI_Trig_Config` does **not** limit the card to a single trigger event
+when used with `WD_AI_ContScanChannels` in double-buffer mode.
+
+This is a key distinction from the previous `WD_AI_ContReadMultiChannels` implementation, where
+`reTrgCnt = 1` in that function's parameter list caused the hardware to assert `fStop` after one
+event (confirmed by the `HR:1 FS:1898` diagnostic pattern). The parameter has different semantics
+across these two API paths.
+
+`RETRIG_CNT_INF` has been corrected from `65535` to `1`. Both continuous and single-shot constants
+are now `1` — the distinction is retained in code for clarity only.
+
+### Buffer reset attempts for successive runs
+
+The `-201 ErrorConfigIoctl` on stop/restart was caused by lingering DMA buffer registrations from
+the previous run. Two `WD_AI_ContBufferReset` calls were added:
+
+1. **In `AdcConfigureCB`** — after freeing DMA buffers, before calibration and `AI_Config`.
+   Clears any registrations that survived a previous session.
+
+2. **In `ADC_StartCommon`** — at the very top, preceded by `WD_AI_AsyncDblBufferMode(card, 0)`
+   to disable double-buffer mode before resetting. This is the safe sequence: disable → reset →
+   re-enable (`AsyncDblBufferMode(1)`) → `ContBufferSetup × 2`.
+
+These buffer reset calls were later found to break SingleShot and were reverted — see Session 2.
+
+### Auto-calibration added to Configure (later removed — see Session 2)
+
+`WD_AD_Auto_Calibration_ALL(adcCard)` was called at the start of `AdcConfigureCB`, after
+the buffer reset and before `WD_AI_Config`. Caused a **FATAL RUN-TIME ERROR** — see Session 2.
+
+---
+
+## 2026-03-23 — Session 2: Buffer allocation root cause; DDS ring; UI fixes
+
+### State when SingleShot worked correctly
+
+**This is the reference "last known good" state.** SingleShot produced correct continuous real-time
+plots (no saving, as intended) on the **first run after a fresh Configure**, with the following
+conditions:
+
+| Property | Value at working point |
+| --- | --- |
+| Buffer allocator | `WD_Buffer_Alloc` (not yet replaced) |
+| Buffer resets | **None** — `WD_AI_ContBufferReset` had been removed entirely |
+| `WD_AI_Trig_Config` order | Called **before** `WD_AI_AsyncDblBufferMode` |
+| Channel config | Per-channel loop `WD_AI_CH_Config(card, i, range)` |
+| `reTrgCnt` in `WD_AI_Trig_Config` | `1` — confirmed to give continuous acquisition |
+| Auto-calibration | None at this point |
+| Run count since Configure | **First run** — buffers were freshly allocated, never previously registered |
+
+**Why it only worked once:** `WD_AI_ContBufferSetup` causes the WD-DASK driver to pin (lock) the
+buffer pages for DMA at the kernel level. `WD_AI_AsyncClear` clears acquisition state but does
+**not** unpin those pages. On the second run, `ContBufferSetup` was called again with the same
+buffer addresses, which were still registered in the driver — returning `-201 ErrorConfigIoctl`.
+Calling `free` (or `WD_Buffer_Free`) on still-pinned pages then caused a crash on release/exit.
+
+---
+
+### -201 ErrorConfigIoctl — root cause identified and fixed
+
+**Previous attempted fixes that did not work:**
+
+- `WD_AI_ContBufferReset` — broke SingleShot, reverted
+- `WD_AI_AsyncDblBufferMode(0)` before reset — same result
+- `WD_Buffer_Alloc` → `malloc` swap — crash on `free` of pinned pages worsened
+
+**Actual root cause (from P98x6 `DbfTrig.c` reference):**
+
+The P98x6 sample never uses `WD_Buffer_Alloc`. It uses:
+
+```c
+hMem = GlobalAlloc(GMEM_FIXED | GMEM_ZEROINIT, data_size * 2);
+ai_buf = (U16 *)GlobalLock(hMem);
+GlobalFix(hMem);
+```
+
+And critically, it **frees and reallocates both buffers on every IDC_START**:
+
+```c
+GlobalUnfix(hMem);  GlobalUnlock(hMem);  GlobalFree(hMem);
+/* ... then GlobalAlloc + GlobalFix fresh ... */
+```
+
+This means `ContBufferSetup` always receives virgin (never-previously-registered) addresses, so
+the driver never sees a double-registration.
+
+**Fix applied:**
+
+- `ADC_AllocBuffer(HGLOBAL*, U16**)` helper: `GlobalAlloc(GMEM_FIXED|GMEM_ZEROINIT) + GlobalLock + GlobalFix`
+- `ADC_FreeBuffer(HGLOBAL*, U16**)` helper: `GlobalUnfix + GlobalUnlock + GlobalFree`
+- `HGLOBAL hDmaBuffer1, hDmaBuffer2` globals added to store handles
+- Buffer allocation **moved out of `AdcConfigureCB`** entirely
+- `ADC_StartCommon` now calls `ADC_FreeBuffer` then `ADC_AllocBuffer` on **every start**,
+  guaranteeing fresh unregistered memory for each `ContBufferSetup` call
+- `AdcReleaseCB` and `ADC_Cleanup` updated to use `ADC_FreeBuffer`
+
+---
+
+### `WD_AI_CH_Config` changed to `All_Channels`
+
+Per-channel loop replaced with a single call:
+
+```c
+WD_AI_CH_Config(adcCard, (U16)All_Channels, adcRangeTable[range]);
+```
+
+This matches the P98x6 `DbfTrig.c` reference exactly. The impedance `CH_ChangeParam` loop is
+retained (still per-channel) since `All_Channels` is not documented for that function.
+
+---
+
+### Auto-calibration (`WD_AD_Auto_Calibration_ALL`) — permanently removed
+
+History of attempts:
+
+1. Added to `AdcConfigureCB` → **FATAL RUN-TIME ERROR** (unknown fault, immediate crash)
+2. Moved to `AdcRegisterCB` → **UI thread freeze**, window could not close
+
+Root cause: the function blocks the CVI UI thread indefinitely on this card/driver combination.
+Removed entirely. Can be re-introduced only via a dedicated background thread with a separate
+button — never on the UI thread.
+
+---
+
+### Release button fix
+
+`AdcRegisterCB` now undims `TABPANEL_2_ADC_BTN_RELEASE` after successful registration, alongside
+`TABPANEL_2_ADC_BTN_CONFIGURE`. Previously the Release button had no path to become accessible.
+
+---
+
+### DDS ring control (partial — UIR edit still required)
+
+**Code changes:**
+
+- `ScanVISAResources`: labels `ASRL19::INSTR` as `AD9914 DDS Controller`; populates DDS ring
+  (guarded by `#if TABPANEL_DDS_RING_RESOURCE != TABPANEL_DDS_STR_COM_PORT`)
+- `DdsConnectCB`: reads ring selection → looks up `resourceList[idx]` → validates ASRL prefix →
+  parses COM number via `strtol` → builds `\\.\COMxx` path. No longer reads typed text.
+- `#ifndef TABPANEL_DDS_RING_RESOURCE` fallback maps to `TABPANEL_DDS_STR_COM_PORT` (ID 2) so
+  code compiles before UIR is updated.
+
+**UIR edit still required:**
+In CVI UIR Editor on the DDS tab panel: delete the string control (`DDS_STR_COM_PORT`, ID 2),
+add a Ring control named `DDS_RING_RESOURCE`. CVI will regenerate the `.h` with the new constant.
+Once done the `#ifndef` fallback is inactive and the ring is live.
+
+**Important:** `ClearListCtrl` / `InsertListItem` on a string control is undefined in CVI and can
+corrupt internal UI state. The calls are wrapped in a compile-time guard so they are suppressed
+until the UIR is actually updated.
+
+---
+
+### PSU current meters
+
+Two scale (meter) controls `PSU_TAB_PSU_CH1_METER` (ID 32) and `PSU_TAB_PSU_CH2_METER` (ID 31)
+added to the PSU tab via UIR editor. Code updated:
+
+- `PSU_ReadMeasurements`: each meter is driven by its channel's `MEASure:CURRent?` result
+- Disconnect path: both meters zeroed alongside the other readback numerics
+
+---
+
+### Current ADC arm sequence (confirmed working architecture)
+
+```c
+/* AdcConfigureCB: */
+WD_AI_Config(card, WD_ExtTimeBase, 0, 0, 0, 0)
+WD_AI_CH_Config(card, All_Channels, range)
+adcConfigured = 1
+
+/* ADC_StartCommon (every start): */
+WD_AI_Trig_Config(card, POST, ExtD, Positive, 0,0,0,0,0, reTrgCnt=1)
+WD_AI_AsyncDblBufferMode(card, 1)
+ADC_FreeBuffer + ADC_AllocBuffer   /* fresh GlobalAlloc+GlobalFix each run */
+WD_AI_ContBufferSetup(buf1)  ->  firstBufId
+WD_AI_ContBufferSetup(buf2)  ->  secondBufId
+WD_AI_ContScanChannels(card, 1, firstBufId, SCANS_PER_HALF, 1, 1, ASYNCH_OP)
+
+/* Poll thread: */
+WD_AI_AsyncDblBufferHalfReady  ->  halfReady / fStop
+WD_AI_AsyncDblBufferHandled (or AsyncDblBufferToFile)
+activeBuf ^= 1
+
+/* Stop: */
+isAcquiring = 0
+WD_AI_AsyncClear
+ADC_FreeBuffer   /* buffers released — fresh ones allocated at next Start */
+```

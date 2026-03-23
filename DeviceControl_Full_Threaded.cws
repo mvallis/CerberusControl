@@ -14,10 +14,10 @@ Number of Projects = 1
 Active Project = 1
 Project 0001 = "DeviceControl_Full_Threaded.prj"
 Drag Bar Left = 249
-Window Top = 31
-Window Left = 61
-Window Bottom = 688
-Window Right = 699
+Window Top = 64
+Window Left = 31
+Window Bottom = 721
+Window Right = 669
 Maximized = True
 Maximized Children = True
 Max32 Number Of Errors = 20
@@ -31,7 +31,7 @@ Save Changes Before Compiling = "Always"
 Hide Windows = False
 Break At First Statement = False
 Sort Type = "File Name"
-Number of Opened Files = 2
+Number of Opened Files = 3
 Window Confinement Region Enabled = True
 MainColumnWidth = 232
 FileDateColumnWidth = 70
@@ -41,7 +41,7 @@ FileSizeColumnWidth = 70
 Version = 2000
 Don't Update DistKit = False
 Platform Code = 4
-Build Configuration = "Debug"
+Build Configuration = "Debug64"
 Warn User If Debugging Release = 1
 Batch Build Release = False
 Batch Build Debug = False
@@ -50,7 +50,7 @@ Batch Build Debug = False
 Path Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/DeviceControl_Fu"
 Path Line0002 = "llThreaded.uir"
 File Type = "User Interface Resource"
-Disk Date = 3856869648
+Disk Date = 3857111445
 In Projects = "1,"
 Window Top = 33
 Window Left = 10
@@ -62,29 +62,40 @@ Window Z-Order = 2
 Path Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/DeviceControl_Fu"
 Path Line0002 = "llThreaded.c"
 File Type = "CSource"
-Disk Date = 3856865152
+Disk Date = 3857118450
 In Projects = "1,"
-Source Window State = "1,8,8,8,2,2,2,0,0,0,0,0,0,0,0,0,0,0,8,2,296,602,1,0,"
+Source Window State = "1,1549,1549,1549,4,4,4,0,0,0,0,0,0,0,0,0,1531,0,1549,4,296,602,1,0,"
+Breakpoint 0001 = "1402,0,enabled,"
+Tracepoint 0001 = "0,0,1403,1,"
+Breakpoint 0002 = "1486,0,enabled,"
+Tracepoint 0002 = "0,0,1487,1,"
+Breakpoint 0003 = "1497,0,enabled,"
+Tracepoint 0003 = "0,0,1498,1,"
+Breakpoint 0004 = "1523,0,enabled,"
+Tracepoint 0004 = "0,0,1524,1,"
+Breakpoint 0005 = "1550,0,enabled,"
+Tracepoint 0005 = "0,0,1551,1,"
 Window Top = 126
 Window Left = 58
 Window Z-Order = 1
 
 [File 0003]
+Path Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/DeviceControl_Fu"
+Path Line0002 = "llThreaded.h"
+File Type = "Include"
+Disk Date = 3857111255
+In Projects = "1,"
+Source Window State = "1,103,103,103,26,26,26,0,0,0,0,0,0,0,0,0,68,0,103,26,266,602,1,0,"
+Window Top = 64
+Window Left = 26
+Window Z-Order = 3
+
+[File 0004]
 Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/dds.h"
 File Type = "Include"
 Disk Date = 3855579855
 In Projects = "1,"
 Source Window State = "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,"
-
-[File 0004]
-Path Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/DeviceControl_Fu"
-Path Line0002 = "llThreaded.h"
-File Type = "Include"
-Disk Date = 3856790350
-In Projects = "1,"
-Source Window State = "1,100,100,100,9,41,9,0,3,0,0,0,0,0,0,0,87,0,100,41,266,602,1,0,"
-Window Top = 64
-Window Left = 26
 
 [File 0005]
 Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/Wd-dask.h"
@@ -96,6 +107,13 @@ Window Top = 33
 Window Left = 10
 
 [File 0006]
+Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/Wd-dask64.h"
+File Type = "Include"
+Disk Date = 3505969822
+In Projects = "1,"
+Source Window State = "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,"
+
+[File 0007]
 Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/wddaskex.h"
 File Type = "Include"
 Disk Date = 3309787162
@@ -104,37 +122,32 @@ Source Window State = "1,17,17,17,25,27,25,0,3,0,0,0,0,0,0,0,0,0,17,27,221,602,1
 Window Top = 33
 Window Left = 10
 
-[File 0007]
+[File 0008]
 Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/dds.c"
 File Type = "CSource"
 Disk Date = 3855579857
 In Projects = "1,"
 Source Window State = "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,"
 
-[File 0008]
+[File 0009]
 Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/WD-Dask.lib"
 File Type = "Library"
 Disk Date = 3508332772
 In Projects = "1,"
 
-[File 0009]
+[File 0010]
 Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/WD-Dask64.lib"
 File Type = "Library"
 Disk Date = 3510526024
 In Projects = "1,"
 
-[File 0010]
-Path = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/Wd-dask64.h"
-File Type = "Include"
-Disk Date = 3505969822
-In Projects = "1,"
-Source Window State = "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,"
-
 [Tab Order]
 Tab 0001 Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/DeviceControl_Fu"
-Tab 0001 Line0002 = "llThreaded.c"
+Tab 0001 Line0002 = "llThreaded.uir"
 Tab 0002 Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/DeviceControl_Fu"
-Tab 0002 Line0002 = "llThreaded.uir"
+Tab 0002 Line0002 = "llThreaded.h"
+Tab 0003 Line0001 = "/c/Users/User/Documents/Cerberus/Software/Control/Full_Threaded/DeviceControl_Fu"
+Tab 0003 Line0002 = "llThreaded.c"
 
 [Default Build Config 0001 Debug]
 Generate Browse Info = True

@@ -164,13 +164,7 @@ static void ScanVISAResources (void)
     numResources = 0;
     ClearListCtrl (relayTabHandle, RELAY_TAB_RELAY_RING_RESOURCE);
     ClearListCtrl (psuTabHandle,   PSU_TAB_PSU_RING_RESOURCE);
-    /* Only populate the DDS ring after the UIR string control has been replaced
-       with a ring control and TABPANEL_DDS_RING_RESOURCE is a distinct constant.
-       Until then the #ifndef fallback maps it to the string control ID, and calling
-       ClearListCtrl/InsertListItem on a string control is undefined in CVI. */
-#if TABPANEL_DDS_RING_RESOURCE != TABPANEL_DDS_STR_COM_PORT
     ClearListCtrl (ddsTabHandle,   TABPANEL_DDS_RING_RESOURCE);
-#endif
 
     if (defaultRM == VI_NULL) return;
 
@@ -205,9 +199,7 @@ static void ScanVISAResources (void)
         /* 3. Insert into all UI rings using the friendly label */
         InsertListItem (relayTabHandle, RELAY_TAB_RELAY_RING_RESOURCE, -1, displayStr, numResources);
         InsertListItem (psuTabHandle,   PSU_TAB_PSU_RING_RESOURCE,   -1, displayStr, numResources);
-#if TABPANEL_DDS_RING_RESOURCE != TABPANEL_DDS_STR_COM_PORT
         InsertListItem (ddsTabHandle,   TABPANEL_DDS_RING_RESOURCE,  -1, displayStr, numResources);
-#endif
 
         numResources++;
 
@@ -980,7 +972,7 @@ static int CVICALLBACK HardwarePollThread (void *data)
         WD_AI_AsyncDblBufferHalfReady (adcCard, &halfReady, &fStop);
         diagPollCount++;
 
-        if (fStop)
+        if (fStop) //often fails due to some setup error meaning fStop called early...
         {
             diagFStopCount++;
             isAcquiring = 0;
@@ -1391,11 +1383,13 @@ int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
     adcRegistered = 1;
     adcConfigured = 0;
 
-    /* NOTE: WD_AD_Auto_Calibration_ALL is omitted here — it blocks the UI thread
-       indefinitely on this card/driver combination (previously caused fatal errors
-       and hangs).  Calibration can be re-introduced later via a dedicated background
-       thread with a separate button if needed. */
-    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Registered OK");
+    /* Auto-calibrate immediately after registration */
+    SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Calibrating...");
+    ProcessSystemEvents ();
+    if (WD_AD_Auto_Calibration_ALL (adcCard) != NoError)
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Registered (calibration failed)");
+    else
+        SetCtrlVal (adcTabHandle, TABPANEL_2_ADC_MSG_STATUS, "ADC: Registered and calibrated OK");
 
     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, TABPANEL_2_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
