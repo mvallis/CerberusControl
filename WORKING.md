@@ -785,3 +785,80 @@ logic.
 3. **Synchronized dimming** — master buttons mirror the ADC tab dimming state machine
 4. **Timer gated** — `MASTER_TIMER_UPDATE` disabled when PSU is not connected (same pattern
    as `PSU_TIMER_READBACK`)
+
+---
+
+## 2026-03-23 — Session 5: -201 fix, UIR rename cleanup
+
+### UIR rename confirmed — .c file already updated
+
+The user renamed all tab panel controls via the CVI UIR Editor:
+- `TABPANEL_2_ADC_*` → `ADC_TAB_ADC_*`
+- `TABPANEL_DDS_*` → `DDS_TAB_DDS_*`
+- New control: `ADC_TAB_ADC_BTN_CALIBRATE` (ID 22) with callback `AdcCalibrateCB`
+- `DDS_TAB_DDS_RING_RESOURCE` (ID 31) now defined natively in the `.h`
+
+The `.c` file had already been updated to use the new names in a prior session. Verified no
+remaining `TABPANEL_2_ADC_*` or `TABPANEL_DDS_*` references exist.
+
+### -201 ErrorConfigIoctl — root cause and fix
+
+**Problem:** Second acquisition start after stopping (Register→Configure→Acquire→Stop→Start)
+returned `-201 ErrorConfigIoctl` from `WD_AI_ContBufferSetup`. Same error occurred after
+calibration (Register→Configure→Calibrate→Configure→Start).
+
+**Root cause:** `WD_AI_ContBufferReset` was **never called** anywhere in the code. After
+`WD_AI_AsyncClear` stops acquisition, the driver's internal buffer registration table retains
+the old entries. Freeing the user-space memory via `GlobalFree` does not release the driver-side
+page-pin registrations. When `ADC_StartCommon` allocates new buffers and calls
+`WD_AI_ContBufferSetup`, the driver rejects the call because it believes buffers are already
+registered.
+
+For calibration, `WD_AD_Auto_Calibration_ALL` may internally register DMA buffers for its own
+use. Without a subsequent `ContBufferReset`, those registrations persist and block the next
+`ContBufferSetup`.
+
+**Fix — three `WD_AI_ContBufferReset` calls added:**
+
+1. **`ADC_StopAcquisition`** — after `WD_AI_AsyncClear`, disable double-buffer mode with
+   `WD_AI_AsyncDblBufferMode(0)`, then `WD_AI_ContBufferReset` to release all driver-side
+   buffer registrations. User-space buffers freed afterwards via `ADC_FreeBuffer`.
+
+2. **`ADC_StartCommon`** — safety `WD_AI_ContBufferReset` before `AsyncDblBufferMode(1)` and
+   buffer allocation. Catches any stale registrations from calibration or incomplete teardowns.
+
+3. **`AdcCalThread`** — `WD_AI_ContBufferReset` immediately after
+   `WD_AD_Auto_Calibration_ALL` returns. Cleans up any internal buffer registrations the
+   calibration function may have created.
+
+**Updated teardown sequence:**
+```
+isAcquiring = 0
+Wait for poll/save threads
+WD_AI_AsyncClear
+WD_AI_AsyncDblBufferMode(card, 0)    /* NEW */
+WD_AI_ContBufferReset(card)          /* NEW */
+ADC_FreeBuffer × 2                   /* MOVED from StartCommon to here */
+```
+
+**Updated startup sequence:**
+```
+WD_AI_Trig_Config
+WD_AI_ContBufferReset(card)          /* NEW — safety net */
+WD_AI_AsyncDblBufferMode(card, 1)
+ADC_FreeBuffer × 2                   /* no-op if already freed by Stop */
+ADC_AllocBuffer × 2
+WD_AI_ContBufferSetup × 2
+WD_AI_ContScanChannels
+```
+
+### Obsolete preprocessor guards removed
+
+- Removed `#ifndef DDS_TAB_DDS_RING_RESOURCE` / `DDS_TAB_DDS_STR_COM_PORT` fallback
+  (now defined natively in `.h`)
+- Removed all `#if DDS_TAB_DDS_RING_RESOURCE != DDS_TAB_DDS_STR_COM_PORT` guards around
+  `ClearListCtrl`/`InsertListItem` calls — DDS ring is always populated now
+- Removed all four `#ifdef ADC_TAB_ADC_BTN_CALIBRATE` guards — the constant is now always
+  defined in the `.h` file
+- Added Calibrate button dimming to `ADC_StartCommon` and `ADC_StopAcquisition` (was only
+  in calibrate-specific callbacks before)

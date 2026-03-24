@@ -27,12 +27,6 @@
 #include "DeviceControl_FullThreaded.h"
 #include "Wd-dask64.h"
 
-/* DDS resource ring — defined in .h once the UIR string control (DDS_TAB_DDS_STR_COM_PORT)
-   is replaced with a ring control in the CVI UIR Editor.  Until that edit is done this
-   falls back to the same control ID so the file still compiles. */
-#ifndef DDS_TAB_DDS_RING_RESOURCE
-#define DDS_TAB_DDS_RING_RESOURCE  DDS_TAB_DDS_STR_COM_PORT
-#endif
 
 
 
@@ -165,13 +159,7 @@ static void ScanVISAResources (void)
     numResources = 0;
     ClearListCtrl (relayTabHandle, RELAY_TAB_RELAY_RING_RESOURCE);
     ClearListCtrl (psuTabHandle,   PSU_TAB_PSU_RING_RESOURCE);
-    /* Only populate the DDS ring after the UIR string control has been replaced
-       with a ring control and DDS_TAB_DDS_RING_RESOURCE is a distinct constant.
-       Until then the #ifndef fallback maps it to the string control ID, and calling
-       ClearListCtrl/InsertListItem on a string control is undefined in CVI. */
-#if DDS_TAB_DDS_RING_RESOURCE != DDS_TAB_DDS_STR_COM_PORT
     ClearListCtrl (ddsTabHandle,   DDS_TAB_DDS_RING_RESOURCE);
-#endif
 
     if (defaultRM == VI_NULL) return;
 
@@ -206,9 +194,7 @@ static void ScanVISAResources (void)
         /* 3. Insert into all UI rings using the friendly label */
         InsertListItem (relayTabHandle, RELAY_TAB_RELAY_RING_RESOURCE, -1, displayStr, numResources);
         InsertListItem (psuTabHandle,   PSU_TAB_PSU_RING_RESOURCE,   -1, displayStr, numResources);
-#if DDS_TAB_DDS_RING_RESOURCE != DDS_TAB_DDS_STR_COM_PORT
         InsertListItem (ddsTabHandle,   DDS_TAB_DDS_RING_RESOURCE,  -1, displayStr, numResources);
-#endif
 
         numResources++;
 
@@ -1309,7 +1295,20 @@ static void ADC_StopAcquisition (void)
     }
 
     if (adcCard >= 0)
+    {
         WD_AI_AsyncClear (adcCard, &startPos, &accessCnt);
+
+        /* Disable double-buffer mode and release all driver-side buffer
+           registrations.  Without ContBufferReset the driver keeps the old
+           page-pin entries, causing -201 ErrorConfigIoctl on the next
+           WD_AI_ContBufferSetup call (even with freshly allocated memory). */
+        WD_AI_AsyncDblBufferMode (adcCard, 0);
+        WD_AI_ContBufferReset (adcCard);
+    }
+
+    /* Now safe to free user-space buffers — driver registrations are cleared */
+    ADC_FreeBuffer (&hDmaBuffer1, &dmaBuffer1);
+    ADC_FreeBuffer (&hDmaBuffer2, &dmaBuffer2);
 
     if (saveQueue != 0)
     {
@@ -1333,6 +1332,7 @@ static void ADC_StopAcquisition (void)
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 0);
 
     /* Re-enable PSU readback timer if PSU is connected */
     if (psuSession != VI_NULL)
@@ -1394,8 +1394,11 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
         return -1;
     }
 
-	//Reset cont buffers here?
-	
+    /* Safety: ensure no stale buffer registrations remain from a previous run
+       or from WD_AD_Auto_Calibration_ALL (which may register internal buffers).
+       Without this, ContBufferSetup below can return -201. */
+    WD_AI_ContBufferReset (adcCard);
+
     /* Enable double-buffer mode */
     err = WD_AI_AsyncDblBufferMode (adcCard, 1);
     if (err != NoError)
@@ -1519,6 +1522,7 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
 
     /* Suspend PSU readback timer — its blocking VISA I/O on the UI thread
        can delay processing of PostDeferredCall plot updates */
@@ -1584,9 +1588,7 @@ int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
 
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
-#ifdef ADC_TAB_ADC_BTN_CALIBRATE
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 0);
-#endif
     return 0;
 }
 
@@ -1601,6 +1603,11 @@ static volatile I16 adcCalResult   = 0;
 static int CVICALLBACK AdcCalThread (void *data)
 {
     adcCalResult = WD_AD_Auto_Calibration_ALL (adcCard);
+
+    /* Calibration may internally register DMA buffers; reset so that the
+       next WD_AI_ContBufferSetup doesn't hit -201 ErrorConfigIoctl. */
+    WD_AI_ContBufferReset (adcCard);
+
     PostDeferredCall ((DeferredCallbackPtr)ADC_CalDoneDeferred, NULL);
     return 0;
 }
@@ -1620,9 +1627,7 @@ static void CVICALLBACK ADC_CalDoneDeferred (void *data)
 
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
-#ifdef ADC_TAB_ADC_BTN_CALIBRATE
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 0);
-#endif
 }
 
 int CVICALLBACK AdcCalibrateCB (int p, int c, int ev, void *cbd, int e1, int e2)
@@ -1648,9 +1653,7 @@ int CVICALLBACK AdcCalibrateCB (int p, int c, int ev, void *cbd, int e1, int e2)
     /* Dim buttons while calibration runs */
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
-#ifdef ADC_TAB_ADC_BTN_CALIBRATE
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
-#endif
 
     CmtScheduleThreadPoolFunction (DEFAULT_THREAD_POOL_HANDLE,
                                    AdcCalThread, NULL, &calThreadID);
@@ -1855,9 +1858,7 @@ int CVICALLBACK AdcReleaseCB (int p, int c, int ev, void *cbd, int e1, int e2)
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
-#ifdef ADC_TAB_ADC_BTN_CALIBRATE
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
-#endif
     return 0;
 }
 
