@@ -52,7 +52,7 @@ static int  numResources = 0;
 
 /* ---- Panel handles ---- */
 static int mainPanel;
-static int relayTabHandle, psuTabHandle, ddsTabHandle, adcTabHandle;
+static int masterTabHandle, relayTabHandle, psuTabHandle, ddsTabHandle, adcTabHandle;
 
 /* ---- Relay state ---- */
 static int relay1State = 0, relay2State = 0;
@@ -113,11 +113,12 @@ int main (int argc, char *argv[])
         return -1;
     }
 
-    /* Tab page handles - order: 0=PSU, 1=Relay, 2=DDS, 3=ADC */
-    GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 0, &psuTabHandle);
-    GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 1, &relayTabHandle);
-    GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 2, &ddsTabHandle);
-    GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 3, &adcTabHandle);
+    /* Tab page handles - order: 0=Master, 1=PSU, 2=Relay, 3=DDS, 4=ADC */
+    GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 0, &masterTabHandle);
+    GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 1, &psuTabHandle);
+    GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 2, &relayTabHandle);
+    GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 3, &ddsTabHandle);
+    GetPanelHandleFromTabPage (mainPanel, MAIN_PANEL_MAIN_PANEL_TAB, 4, &adcTabHandle);
 
     /* Initial dimming */
     SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_DISCONNECT, ATTR_DIMMED, 1);
@@ -127,6 +128,12 @@ int main (int argc, char *argv[])
     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_DISCONNECT, ATTR_DIMMED, 1);
     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_TIMER_READBACK, ATTR_ENABLED, 0);
     SetPSUDimmed (1);
+
+    /* Master tab: acquisition buttons dimmed until setup completes */
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_START,  ATTR_DIMMED, 1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_RECORD, ATTR_DIMMED, 1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_STOP,   ATTR_DIMMED, 1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_TIMER_UPDATE,   ATTR_ENABLED, 0);
 
     ScanVISAResources ();
 
@@ -412,6 +419,8 @@ int CVICALLBACK PsuConnectCB (int p, int c, int ev, void *cbd, int e1, int e2)
     SetCtrlVal(psuTabHandle,PSU_TAB_PSU_LED_CH3_OUTPUT,0);
     SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_BTN_ALL_OUTPUT,ATTR_LABEL_TEXT,"ALL OUT: OFF");
     SetCtrlAttribute(psuTabHandle,PSU_TAB_PSU_TIMER_READBACK,ATTR_ENABLED,1);
+    /* Enable master tab update timer when PSU connects */
+    SetCtrlAttribute(masterTabHandle,MASTER_TAB_MASTER_TIMER_UPDATE,ATTR_ENABLED,1);
     return 0;
 }
 
@@ -811,6 +820,28 @@ int CVICALLBACK DdsDivRatioCB (int p, int c, int ev, void *cbd, int e1, int e2)
  *===========================================================================*/
 
 /*---------------------------------------------------------------------------
+ * Provisional UIR control IDs for FFT window + zero-pad rings
+ *
+ * In the CVI User Interface Editor, add two ring controls to the ADC tab:
+ *   1. Name: ADC_RING_WINDOW    Label: "FFT Window"
+ *      Items (label → value):  Rectangular→0, Hann→1, Hamming→2,
+ *                               Blackman-Harris→3, Blackman→5, Flat Top→6
+ *   2. Name: ADC_RING_ZEROPAD  Label: "Zero Pad"
+ *      Items (label → value):  None(1x)→0, 2x→1, 4x→2, 8x→3, 16x→4,
+ *                               32x→5, 64x→6, 128x→7, 256x→8
+ *
+ * CVI will regenerate DeviceControl_FullThreaded.h with the real #define
+ * values (ADC_TAB_ADC_RING_WINDOW, ADC_TAB_ADC_RING_ZEROPAD).
+ * REMOVE the two provisional lines below once that is done.
+ *---------------------------------------------------------------------------*/
+#ifndef ADC_TAB_ADC_RING_WINDOW
+#define ADC_TAB_ADC_RING_WINDOW   23   /* PROVISIONAL — remove after UIR edit */
+#endif
+#ifndef ADC_TAB_ADC_RING_ZEROPAD
+#define ADC_TAB_ADC_RING_ZEROPAD  24   /* PROVISIONAL — remove after UIR edit */
+#endif
+
+/*---------------------------------------------------------------------------
  * Constants
  *---------------------------------------------------------------------------*/
 #define ADC_NUM_CH          2U
@@ -873,6 +904,15 @@ static unsigned int plotScans    = 0;
 static double       adcVoltScale = 1.0;
 static volatile int plotBusy     = 0;
 
+/* FFT processing — pre-computed table cache + dynamic work buffers
+   (all allocated/freed on the UI thread; never touched from poll thread)  */
+static PFFTTable        fftTableCached  = NULL;   /* CreateFFTTable result   */
+static U32              fftTableN       = 0;      /* size table was built for */
+static double          *fftPaddedWork   = NULL;   /* windowed + zero-padded input */
+static NIComplexNumber *fftOut0         = NULL;   /* FFT result CH0 (LRX)    */
+static NIComplexNumber *fftOut1         = NULL;   /* FFT result CH1 (URX)    */
+static U32              fftBufSize      = 0;      /* current allocation (elements) */
+
 /* Diagnostic counters (written by poll thread, read by timer on UI thread) */
 static volatile U32 diagPollCount   = 0;
 static volatile U32 diagHalfReady   = 0;
@@ -888,6 +928,9 @@ static volatile U32 diagDmaOverrun  = 0;
  *---------------------------------------------------------------------------*/
 static int  CVICALLBACK HardwarePollThread  (void *data);
 static int  CVICALLBACK DiskSaveThread      (void *data);
+static void             ADC_ApplyWindow     (double *data, U32 n, int winType);
+static PFFTTable        ADC_GetFFTTable     (U32 n);
+static int              ADC_EnsureFFTBufs   (U32 n);
 static void CVICALLBACK ADC_PlotDeferred    (void *data);
 static void CVICALLBACK ADC_StopDeferred    (void *data);
 static int  CVICALLBACK AdcCalThread        (void *data);
@@ -1082,6 +1125,78 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode)
 }
 
 /*---------------------------------------------------------------------------
+ * ADC_ApplyWindow — in-place window function dispatch
+ *   windowType values match CVI analysis.h GetWinProperties constants:
+ *     0 = Rectangular (none), 1 = Hann, 2 = Hamming, 3 = Blackman-Harris,
+ *     5 = Blackman,           6 = Flat Top
+ *---------------------------------------------------------------------------*/
+static void ADC_ApplyWindow (double *data, U32 n, int windowType)
+{
+    switch (windowType)
+    {
+        case 1: HanWin      (data, (ssize_t)n); break;
+        case 2: HamWin      (data, (ssize_t)n); break;
+        case 3: BlkHarrisWin(data, (ssize_t)n); break;
+        case 5: BkmanWin    (data, (ssize_t)n); break;
+        case 6: FlatTopWin  (data, (ssize_t)n); break;
+        /* case 0: Rectangular — no windowing applied */
+        default: break;
+    }
+}
+
+/*---------------------------------------------------------------------------
+ * ADC_GetFFTTable — return a cached PFFTTable of size n.
+ *   Destroys and recreates the table only when n changes.
+ *---------------------------------------------------------------------------*/
+static PFFTTable ADC_GetFFTTable (U32 n)
+{
+    if (fftTableCached && fftTableN == n)
+        return fftTableCached;
+
+    if (fftTableCached)
+    {
+        DestroyFFTTable (fftTableCached);
+        fftTableCached = NULL;
+        fftTableN      = 0;
+    }
+
+    fftTableCached = CreateFFTTable ((ssize_t)n);
+    if (fftTableCached)
+        fftTableN = n;
+
+    return fftTableCached;
+}
+
+/*---------------------------------------------------------------------------
+ * ADC_EnsureFFTBufs — (re)allocate dynamic FFT work buffers if too small.
+ *   Returns 1 on success, 0 on allocation failure.
+ *---------------------------------------------------------------------------*/
+static int ADC_EnsureFFTBufs (U32 n)
+{
+    if (n <= fftBufSize)
+        return 1;
+
+    free (fftPaddedWork); fftPaddedWork = NULL;
+    free (fftOut0);       fftOut0       = NULL;
+    free (fftOut1);       fftOut1       = NULL;
+    fftBufSize = 0;
+
+    fftPaddedWork = (double *)         malloc (n * sizeof (double));
+    fftOut0       = (NIComplexNumber *)malloc (n * sizeof (NIComplexNumber));
+    fftOut1       = (NIComplexNumber *)malloc (n * sizeof (NIComplexNumber));
+
+    if (!fftPaddedWork || !fftOut0 || !fftOut1)
+    {
+        free (fftPaddedWork); free (fftOut0); free (fftOut1);
+        fftPaddedWork = NULL; fftOut0 = NULL; fftOut1 = NULL;
+        return 0;
+    }
+
+    fftBufSize = n;
+    return 1;
+}
+
+/*---------------------------------------------------------------------------
  * HardwarePollThread — polls for half-buffer ready events
  *---------------------------------------------------------------------------*/
 static int CVICALLBACK HardwarePollThread (void *data)
@@ -1195,72 +1310,143 @@ static int CVICALLBACK DiskSaveThread (void *data)
 
 /*---------------------------------------------------------------------------
  * ADC_PlotDeferred — runs on UI thread; plots one chirp of CH0 + CH1
- *   in the time domain and (if N is a power of 2) the FFT magnitude.
+ *   in the time domain and (if N is a power of 2) the windowed, zero-padded
+ *   FFT magnitude with coherent-gain amplitude correction.
+ *
+ *   FFT output is in dBV (peak), where 0 dBV = 1 V peak amplitude.
+ *   A full-scale ±5 V sine reads ≈ +14 dBV; ±1 V sine reads ≈ 0 dBV.
+ *   Formula:  corrected_dB = 20·log10(|X|) − 20·log10(N/2) + window_correction_dB
+ *   where window_correction_dB = −20·log10(coherentgain)  from GetWinProperties().
  *---------------------------------------------------------------------------*/
 static void CVICALLBACK ADC_PlotDeferred (void *data)
 {
     static double ch0[PLOT_SCANS_MAX];
     static double ch1[PLOT_SCANS_MAX];
-    static double fftReal[PLOT_SCANS_MAX];
-    static double fftImag[PLOT_SCANS_MAX];
     static double fftMag0[PLOT_SCANS_MAX];
     static double fftMag1[PLOT_SCANS_MAX];
-    U32    i, scans, halfN;
-    double scale, re, im;
+
+    U32         i, scans, paddedN, halfPadN;
+    int         windowType, padFactor;
+    double      scale, correction_dB, window_correction_dB;
+    WindowConst winProps;
+    PFFTTable   tbl;
 
     scans = plotScans;
     if (scans == 0 || scans > PLOT_SCANS_MAX) { plotBusy = 0; return; }
 
-    /* Deinterleave and convert to volts */
+    /* Read FFT parameters from UI rings (defaults if controls not yet in UIR) */
+    if (GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_WINDOW,  &windowType) != 0)
+        windowType = 1;   /* default: Hann */
+    if (GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_ZEROPAD, &padFactor)  != 0)
+        padFactor  = 0;   /* default: no padding */
+    if (padFactor < 0) padFactor = 0;
+    if (padFactor > 8) padFactor = 8;
+
+    /* Deinterleave and convert to volts.
+       Raw U16 (0–65535): 32768 = 0 V.  Subtract mid-point as double to
+       avoid signed-overflow from the (I16) cast on values >= 32768. */
     scale = adcVoltScale / 32768.0;
     for (i = 0; i < scans; i++)
     {
-        ch0[i] = (double)((I16)plotBuffer[i * 2    ]) * scale;
-        ch1[i] = (double)((I16)plotBuffer[i * 2 + 1]) * scale;
+        ch0[i] = ((double)plotBuffer[i * 2    ] - 32768.0) * scale;
+        ch1[i] = ((double)plotBuffer[i * 2 + 1] - 32768.0) * scale;
     }
 
     /* ---- Time-domain plot ---- */
-    DeleteGraphPlot (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, -1, VAL_DELAYED_DRAW);
-    PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ch0, (int)scans,
-           VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
-    PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ch1, (int)scans,
-           VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+    {
+        int ph;
+        DeleteGraphPlot (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, -1, VAL_DELAYED_DRAW);
+        ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ch0, (int)scans,
+                    VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
+        SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ph,
+                          ATTR_PLOT_LG_TEXT, "LRX (CH0)");
+        ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ch1, (int)scans,
+                    VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+        SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ph,
+                          ATTR_PLOT_LG_TEXT, "URX (CH1)");
+    }
 
     /* ---- FFT — only when scans is a power of 2 (>= 4) ---- */
     if (scans >= 4 && (scans & (scans - 1)) == 0)
     {
-        halfN = scans / 2;
+        /* Compute paddedN = scans * 2^padFactor, capped so halfPadN <= PLOT_SCANS_MAX */
+        paddedN = scans << padFactor;
+        if (paddedN > PLOT_SCANS_MAX * 2U || paddedN < scans) /* overflow guard */
+            paddedN = PLOT_SCANS_MAX * 2U;
+        halfPadN = paddedN / 2;
 
-        /* CH0: copy, window, FFT, magnitude */
-        memcpy (fftReal, ch0, scans * sizeof (double));
-        memset (fftImag, 0,   scans * sizeof (double));
-        HanWin (fftReal, (ssize_t)scans);
-        FFT    (fftReal, fftImag, (ssize_t)scans);
-        for (i = 0; i < halfN; i++)
+        /* Get/create cached FFT table and allocate work buffers */
+        tbl = ADC_GetFFTTable (paddedN);
+        if (!tbl)                         { plotBusy = 0; return; }
+        if (!ADC_EnsureFFTBufs (paddedN)) { plotBusy = 0; return; }
+
+        /* Amplitude correction (dBV, peak, one-sided spectrum):
+             correction_dB = window_correction - 20·log10(N/2)
+           N is the number of real signal samples (scans), not the padded length,
+           because the signal energy comes from scans points.                      */
+        GetWinProperties (windowType, &winProps);
+        window_correction_dB = (winProps.coherentgain > 0.0)
+                                ? -20.0 * log10 (winProps.coherentgain)
+                                :  0.0;
+        correction_dB = window_correction_dB - 20.0 * log10 ((double)(scans / 2)); // Needs the additional values later once the radar characterisation has been completed!
+		// Additional terms are:... 
+
+        /* --- CH0 (LRX): window → zero-pad → FFTEx → magnitude → dBV --- */
+        memcpy (fftPaddedWork, ch0, scans * sizeof (double));
+        ADC_ApplyWindow (fftPaddedWork, scans, windowType);
+        if (paddedN > scans)
+            memset (fftPaddedWork + scans, 0,
+                    (paddedN - scans) * sizeof (double));
+        FFTEx (fftPaddedWork, (ssize_t)paddedN, (ssize_t)paddedN,
+               tbl, FALSE, fftOut0);
+        for (i = 0; i < halfPadN; i++)
         {
-            re = fftReal[i];
-            im = fftImag[i];
-            fftMag0[i] = 20.0 * log10 (sqrt (re * re + im * im) + 1e-20);
+            double re = fftOut0[i].real;
+            double im = fftOut0[i].imaginary;
+            fftMag0[i] = 20.0 * log10 (sqrt (re*re + im*im) + 1e-20)
+                         + correction_dB;
         }
 
-        /* CH1: copy, window, FFT, magnitude */
-        memcpy (fftReal, ch1, scans * sizeof (double));
-        memset (fftImag, 0,   scans * sizeof (double));
-        HanWin (fftReal, (ssize_t)scans);
-        FFT    (fftReal, fftImag, (ssize_t)scans);
-        for (i = 0; i < halfN; i++)
+        /* --- CH1 (URX): same processing --- */
+        memcpy (fftPaddedWork, ch1, scans * sizeof (double));
+        ADC_ApplyWindow (fftPaddedWork, scans, windowType);
+        if (paddedN > scans)
+            memset (fftPaddedWork + scans, 0,
+                    (paddedN - scans) * sizeof (double));
+        FFTEx (fftPaddedWork, (ssize_t)paddedN, (ssize_t)paddedN,
+               tbl, FALSE, fftOut1);
+        for (i = 0; i < halfPadN; i++)
         {
-            re = fftReal[i];
-            im = fftImag[i];
-            fftMag1[i] = 20.0 * log10 (sqrt (re * re + im * im) + 1e-20);
+            double re = fftOut1[i].real;
+            double im = fftOut1[i].imaginary;
+            fftMag1[i] = 20.0 * log10 (sqrt (re*re + im*im) + 1e-20)
+                         + correction_dB;
         }
 
-        /* Plot FFT magnitude (positive-frequency half only) */
-        DeleteGraphPlot (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, -1, VAL_DELAYED_DRAW);
-        PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, fftMag0, (int)halfN,
-               VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
-        PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, fftMag1, (int)halfN,
-               VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+        /* ---- Plot FFT magnitude (positive-frequency half, halfPadN bins) ---- */
+        {
+            int ph;
+            DeleteGraphPlot (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, -1, VAL_DELAYED_DRAW);
+            ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, fftMag0, (int)halfPadN,
+                        VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
+            SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, ph,
+                              ATTR_PLOT_LG_TEXT, "LRX (CH0)");
+            ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, fftMag1, (int)halfPadN,
+                        VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+            SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, ph,
+                              ATTR_PLOT_LG_TEXT, "URX (CH1)");
+
+            /* Mirror to master tab */
+            DeleteGraphPlot (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, -1, VAL_DELAYED_DRAW);
+            ph = PlotY (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, fftMag0, (int)halfPadN,
+                        VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
+            SetPlotAttribute (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, ph,
+                              ATTR_PLOT_LG_TEXT, "LRX (CH0)");
+            ph = PlotY (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, fftMag1, (int)halfPadN,
+                        VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+            SetPlotAttribute (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, ph,
+                              ATTR_PLOT_LG_TEXT, "URX (CH1)");
+        }
     }
 
     diagPlotDone++;
@@ -1333,6 +1519,12 @@ static void ADC_StopAcquisition (void)
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 0);
+
+    /* Sync master tab */
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_START,  ATTR_DIMMED, 0);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_RECORD, ATTR_DIMMED, 0);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_STOP,   ATTR_DIMMED, 1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_SETUP,  ATTR_DIMMED, 0);
 
     /* Re-enable PSU readback timer if PSU is connected */
     if (psuSession != VI_NULL)
@@ -1524,6 +1716,12 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
 
+    /* Sync master tab */
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_START,  ATTR_DIMMED, 1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_RECORD, ATTR_DIMMED, 1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_STOP,   ATTR_DIMMED, 0);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_SETUP,  ATTR_DIMMED, 1);
+
     /* Suspend PSU readback timer — its blocking VISA I/O on the UI thread
        can delay processing of PostDeferredCall plot updates */
     SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_TIMER_READBACK, ATTR_ENABLED, 0);
@@ -1541,6 +1739,18 @@ static void ADC_Cleanup (void)
 
     ADC_FreeBuffer (&hDmaBuffer1, &dmaBuffer1);
     ADC_FreeBuffer (&hDmaBuffer2, &dmaBuffer2);
+
+    /* Release FFT table and dynamic work buffers */
+    if (fftTableCached)
+    {
+        DestroyFFTTable (fftTableCached);
+        fftTableCached = NULL;
+        fftTableN      = 0;
+    }
+    free (fftPaddedWork); fftPaddedWork = NULL;
+    free (fftOut0);       fftOut0       = NULL;
+    free (fftOut1);       fftOut1       = NULL;
+    fftBufSize = 0;
 
     if (adcRegistered)
     {
@@ -1597,16 +1807,18 @@ int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
  *   WD_AD_Auto_Calibration_ALL can take several seconds and previously caused
  *   fatal errors / hangs when called on the UI thread.
  *---------------------------------------------------------------------------*/
-static volatile int adcCalibrating = 0;
-static volatile I16 adcCalResult   = 0;
+static volatile int adcCalibrating    = 0;
+static volatile I16 adcCalResult      = 0;
+static volatile int masterSetupPending = 0;  /* auto-configure after cal */
 
 static int CVICALLBACK AdcCalThread (void *data)
 {
     adcCalResult = WD_AD_Auto_Calibration_ALL (adcCard);
 
-    /* Calibration may internally register DMA buffers; reset so that the
-       next WD_AI_ContBufferSetup doesn't hit -201 ErrorConfigIoctl. */
-    WD_AI_ContBufferReset (adcCard);
+    /* Do NOT call WD_AI_ContBufferReset here — no buffers are registered at
+       this point and calling it can crash the driver.  The safety
+       ContBufferReset at the top of ADC_StartCommon handles any stale state
+       that calibration may leave behind. */
 
     PostDeferredCall ((DeferredCallbackPtr)ADC_CalDoneDeferred, NULL);
     return 0;
@@ -1616,8 +1828,14 @@ static void CVICALLBACK ADC_CalDoneDeferred (void *data)
 {
     adcCalibrating = 0;
 
+    /* Calibration writes new ADC constants — any prior AI_Config / CH_Config
+       state references stale calibration data.  Force re-configure so the
+       channel setup uses the new constants. */
+    adcConfigured = 0;
+
     if (adcCalResult == NoError)
-        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Calibration OK");
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS,
+                    "ADC: Calibration OK — please re-Configure");
     else
     {
         char msg[128];
@@ -1625,9 +1843,49 @@ static void CVICALLBACK ADC_CalDoneDeferred (void *data)
         SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
     }
 
+    /* Re-enable Configure/Release/Calibrate; keep acquisition buttons dimmed
+       since adcConfigured is now 0 — user must re-configure first. */
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
+
+    /* If master setup sequence triggered this calibration, auto-configure */
+    if (masterSetupPending && adcCalResult == NoError)
+    {
+        masterSetupPending = 0;
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "ADC: Setup — configuring...");
+        /* Trigger configure — reuse AdcConfigureCB */
+        AdcConfigureCB (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE,
+                        EVENT_COMMIT, NULL, 0, 0);
+        if (adcConfigured)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "ADC: Setup complete — ready");
+            SetCtrlAttribute (masterTabHandle,
+                              MASTER_TAB_MASTER_BTN_ACQ_START,  ATTR_DIMMED, 0);
+            SetCtrlAttribute (masterTabHandle,
+                              MASTER_TAB_MASTER_BTN_ACQ_RECORD, ATTR_DIMMED, 0);
+            /* Enable the master update timer */
+            SetCtrlAttribute (masterTabHandle,
+                              MASTER_TAB_MASTER_TIMER_UPDATE, ATTR_ENABLED, 1);
+        }
+        else
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "ADC: Setup — configure failed");
+        SetCtrlAttribute (masterTabHandle,
+                          MASTER_TAB_MASTER_BTN_ACQ_SETUP, ATTR_DIMMED, 0);
+    }
+    else
+    {
+        masterSetupPending = 0;
+        SetCtrlAttribute (masterTabHandle,
+                          MASTER_TAB_MASTER_BTN_ACQ_SETUP, ATTR_DIMMED, 0);
+    }
 }
 
 int CVICALLBACK AdcCalibrateCB (int p, int c, int ev, void *cbd, int e1, int e2)
@@ -1650,10 +1908,14 @@ int CVICALLBACK AdcCalibrateCB (int p, int c, int ev, void *cbd, int e1, int e2)
     adcCalibrating = 1;
     SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Calibrating...");
 
-    /* Dim buttons while calibration runs */
+    /* Dim all buttons while calibration runs */
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
 
     CmtScheduleThreadPoolFunction (DEFAULT_THREAD_POOL_HANDLE,
                                    AdcCalThread, NULL, &calThreadID);
@@ -1882,5 +2144,449 @@ int CVICALLBACK AdcPollTimerCB (int p, int c, int ev, void *cbd, int e1, int e2)
               (unsigned)diagDmaOverrun);
 
     SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
+    return 0;
+}
+
+/*===========================================================================
+ *  CALLBACKS  -  MASTER TAB
+ *===========================================================================*/
+
+/*---------------------------------------------------------------------------
+ * FindResourceBySubstring — returns resourceList index containing substr,
+ *   or -1 if not found.  Must be called after ScanVISAResources().
+ *---------------------------------------------------------------------------*/
+static int FindResourceBySubstring (const char *substr)
+{
+    int i;
+    for (i = 0; i < numResources; i++)
+        if (strstr (resourceList[i], substr) != NULL)
+            return i;
+    return -1;
+}
+
+/* Expected PSU values for colour numeric range checking */
+#define CH1_VOLT_NOM   18.0
+#define CH1_VOLT_TOL    0.5
+#define CH2_VOLT_NOM    8.0
+#define CH2_VOLT_TOL    0.5
+#define CH1_CURR_NOM    2.0    /* nominal current draw (A) — green within ±1 A */
+#define CH2_CURR_NOM    1.9
+#define CH1_CURR_TOL    1.0
+#define CH2_CURR_TOL    1.0
+
+/*---------------------------------------------------------------------------
+ * MasterUpdateTimerCB — periodic refresh (~500 ms)
+ *   Reads PSU values from the PSU tab indicators (no duplicate VISA I/O),
+ *   mirrors relay/DDS/ADC state from globals, updates colour numerics.
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK MasterUpdateTimerCB (int p, int c, int ev, void *cbd,
+                                     int e1, int e2)
+{
+    double v1, i1, v2, i2;
+    char buf[64];
+
+    if (ev != EVENT_TIMER_TICK) return 0;
+
+    /* ---- PSU readback: mirror from PSU tab numerics ---- */
+    GetCtrlVal (psuTabHandle, PSU_TAB_PSU_NUM_CH1_VOLT_READ, &v1);
+    GetCtrlVal (psuTabHandle, PSU_TAB_PSU_NUM_CH1_CURR_READ, &i1);
+    GetCtrlVal (psuTabHandle, PSU_TAB_PSU_NUM_CH2_VOLT_READ, &v2);
+    GetCtrlVal (psuTabHandle, PSU_TAB_PSU_NUM_CH2_CURR_READ, &i2);
+
+    /* CH1 voltage colour numeric */
+    snprintf (buf, sizeof(buf), "%.2f", v1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_NUM_CH1_VOLT,
+                      ATTR_LABEL_TEXT, buf);
+    if (v1 >= (CH1_VOLT_NOM - CH1_VOLT_TOL) &&
+        v1 <= (CH1_VOLT_NOM + CH1_VOLT_TOL))
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH1_VOLT,
+                    VAL_GREEN);
+    else if (v1 < 0.1)
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH1_VOLT,
+                    VAL_DK_GRAY);
+    else
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH1_VOLT,
+                    VAL_RED);
+
+    /* CH1 current colour numeric */
+    snprintf (buf, sizeof(buf), "%.3f", i1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_NUM_CH1_CURR,
+                      ATTR_LABEL_TEXT, buf);
+    if (i1 >= (CH1_CURR_NOM - CH1_CURR_TOL) && i1 <= (CH1_CURR_NOM + CH1_CURR_TOL))
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH1_CURR, VAL_GREEN);
+    else if (i1 < 0.1)
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH1_CURR, VAL_DK_GRAY);
+    else
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH1_CURR, VAL_RED);
+
+    /* CH2 voltage colour numeric */
+    snprintf (buf, sizeof(buf), "%.2f", v2);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_NUM_CH2_VOLT,
+                      ATTR_LABEL_TEXT, buf);
+    if (v2 >= (CH2_VOLT_NOM - CH2_VOLT_TOL) &&
+        v2 <= (CH2_VOLT_NOM + CH2_VOLT_TOL))
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH2_VOLT,
+                    VAL_GREEN);
+    else if (v2 < 0.1)
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH2_VOLT,
+                    VAL_DK_GRAY);
+    else
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH2_VOLT,
+                    VAL_RED);
+
+    /* CH2 current colour numeric */
+    snprintf (buf, sizeof(buf), "%.3f", i2);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_NUM_CH2_CURR,
+                      ATTR_LABEL_TEXT, buf);
+    if (i2 >= (CH2_CURR_NOM - CH2_CURR_TOL) && i2 <= (CH2_CURR_NOM + CH2_CURR_TOL))
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH2_CURR, VAL_GREEN);
+    else if (i2 < 0.1)
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH2_CURR, VAL_DK_GRAY);
+    else
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_NUM_CH2_CURR, VAL_RED);
+
+    /* Meters */
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_CH1_METER, i1);
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_CH2_METER, i2);
+
+    /* ---- PSU all-on LED ---- */
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_LED_PSU,
+                (ch1OutState && ch2OutState && ch3OutState) ? 1 : 0);
+
+    /* ---- Relay LED ---- */
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_LED_TX_RELAY, relay1State);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_TX_RELAY,
+                      ATTR_LABEL_TEXT,
+                      relay1State ? "Shields: ON" : "Shields: OFF");
+
+    /* ---- DDS LED ---- */
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_LED_DDS, ddsSweepActive);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_DDS,
+                      ATTR_LABEL_TEXT,
+                      ddsSweepActive ? "Weapons: ON" : "Weapons: OFF");
+
+    /* ---- ADC LED ---- */
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_LED_ADC,
+                adcConfigured ? 1 : 0);
+
+    /* ---- Status messages ---- */
+    {
+        char ddsMsg[128], adcMsg[128];
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, ddsMsg);
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_DDS_STATUS, ddsMsg);
+        if (isAcquiring)
+            snprintf (adcMsg, sizeof(adcMsg),
+                      "Acquiring — HR:%u OVR:%u",
+                      (unsigned)diagHalfReady, (unsigned)diagDmaOverrun);
+        else if (adcConfigured)
+            strcpy (adcMsg, "Acq. Status: Ready");
+        else if (adcRegistered)
+            strcpy (adcMsg, "Acq. Status: Registered");
+        else
+            strcpy (adcMsg, "Acq. Status: Offline");
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS, adcMsg);
+    }
+
+    /* ---- Power status label ---- */
+    if (psuSession != VI_NULL)
+        SetCtrlVal (masterTabHandle, MASTER_TAB_STATUS_LABEL,
+                    "Power Status: Online");
+    else
+        SetCtrlVal (masterTabHandle, MASTER_TAB_STATUS_LABEL,
+                    "Power Status: Offline");
+
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * MasterPsuAllCB — toggle all PSU outputs (delegates to existing logic)
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK MasterPsuAllCB (int p, int c, int ev, void *cbd,
+                                int e1, int e2)
+{
+    if (ev != EVENT_COMMIT) return 0;
+
+    /* Auto-connect PSU (USBTMC/USB resource) if not already connected */
+    if (psuSession == VI_NULL)
+    {
+        int    idx;
+        char   resp[READ_BUF_LEN];
+
+        ScanVISAResources ();
+
+        /* Find a USB instrument resource that is not a serial (ASRL) port */
+        idx = -1;
+        {
+            int k;
+            for (k = 0; k < numResources; k++)
+            {
+                if (strstr (resourceList[k], "USB")  != NULL &&
+                    strstr (resourceList[k], "ASRL") == NULL)
+                {
+                    idx = k;
+                    break;
+                }
+            }
+        }
+
+        if (idx < 0)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_STATUS_LABEL,
+                        "PSU: No USB instrument found");
+            return 0;
+        }
+
+        SetCtrlVal (psuTabHandle, PSU_TAB_PSU_RING_RESOURCE, idx);
+
+        if (PSU_Connect (resourceList[idx]) < 0)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_STATUS_LABEL,
+                        "PSU: USB connect failed");
+            return 0;
+        }
+
+        /* Mirror the connected state into the PSU tab */
+        if (PSU_Query ("*IDN?", resp, sizeof(resp)) == 0)
+            SetCtrlVal (psuTabHandle, PSU_TAB_PSU_MSG_IDN, resp);
+        SetCtrlVal       (psuTabHandle, PSU_TAB_PSU_MSG_STATUS, "Status: Connected");
+        SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CONNECT,    ATTR_DIMMED, 1);
+        SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_DISCONNECT, ATTR_DIMMED, 0);
+        SetPSUDimmed (0);
+        ch1OutState = ch2OutState = ch3OutState = 0;
+        SetCtrlVal (psuTabHandle, PSU_TAB_PSU_LED_CH1_OUTPUT, 0);
+        SetCtrlVal (psuTabHandle, PSU_TAB_PSU_LED_CH2_OUTPUT, 0);
+        SetCtrlVal (psuTabHandle, PSU_TAB_PSU_LED_CH3_OUTPUT, 0);
+        SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_ALL_OUTPUT,
+                          ATTR_LABEL_TEXT, "ALL OUT: OFF");
+        SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_TIMER_READBACK, ATTR_ENABLED, 1);
+        SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_TIMER_UPDATE,
+                          ATTR_ENABLED, 1);
+    }
+
+    /* Now delegate to the normal all-output toggle */
+    return PsuAllOutCB (p, c, ev, cbd, e1, e2);
+}
+
+/*---------------------------------------------------------------------------
+ * MasterTxRelayCB — toggle TX relay (relay 1)
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK MasterTxRelayCB (int p, int c, int ev, void *cbd,
+                                 int e1, int e2)
+{
+    if (ev != EVENT_COMMIT) return 0;
+    if (relaySession == VI_NULL)
+    {
+        int idx;
+        ScanVISAResources ();
+        idx = FindResourceBySubstring ("ASRL18");
+        if (idx < 0)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "Relay: ASRL18 not found");
+            return 0;
+        }
+        SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_RING_RESOURCE, idx);
+        if (Relay_Connect (resourceList[idx]) < 0)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "Relay: connect to ASRL18 failed");
+            return 0;
+        }
+        SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_MSG_STATUS, "Status: Connected");
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_CONNECT,    ATTR_DIMMED, 1);
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_DISCONNECT, ATTR_DIMMED, 0);
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY1,       ATTR_DIMMED, 0);
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY2,       ATTR_DIMMED, 0);
+        relay1State = relay2State = 0;
+        SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY1, 0);
+        SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY2, 0);
+    }
+    relay1State = !relay1State;
+    if (Relay_Set (1, relay1State) < 0)
+    {
+        relay1State = !relay1State;
+        return 0;
+    }
+    /* Sync relay tab */
+    SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY1, relay1State);
+    SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY1,
+                      ATTR_LABEL_TEXT,
+                      relay1State ? "Relay 1: ON" : "Relay 1: OFF");
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * MasterDdsCB — start or stop DDS chirp
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK MasterDdsCB (int p, int c, int ev, void *cbd,
+                             int e1, int e2)
+{
+    if (ev != EVENT_COMMIT) return 0;
+    if (!ddsConnected)
+    {
+        int idx;
+        ScanVISAResources ();
+        idx = FindResourceBySubstring ("ASRL19");
+        if (idx < 0)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_DDS_STATUS,
+                        "DDS: ASRL19 not found");
+            return 0;
+        }
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_RESOURCE, idx);
+        /* Delegate to DdsConnectCB which handles port parsing and init */
+        DdsConnectCB (ddsTabHandle, DDS_TAB_DDS_BTN_CONNECT,
+                      EVENT_COMMIT, NULL, 0, 0);
+        if (!ddsConnected)
+            return 0;   /* DdsConnectCB already set an error status */
+    }
+    if (ddsSweepActive)
+    {
+        /* Stop — delegate to existing DdsStopCB logic */
+        dds_powerdown ();
+        ddsSweepActive = 0;
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Sweep stopped");
+        SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START, ATTR_DIMMED, 0);
+        SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,  ATTR_DIMMED, 1);
+    }
+    else
+    {
+        /* Start — trigger DdsStartCB which reads params from the DDS tab */
+        DdsStartCB (ddsTabHandle, DDS_TAB_DDS_BTN_START,
+                    EVENT_COMMIT, NULL, 0, 0);
+    }
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * MasterAcqSetupCB — one-button: Register → Calibrate → Configure
+ *   Calibration runs in a background thread; configure is deferred to
+ *   ADC_CalDoneDeferred via a flag so it happens after cal completes.
+ *---------------------------------------------------------------------------*/
+static int CVICALLBACK MasterCalThread (void *data)
+{
+    adcCalResult = WD_AD_Auto_Calibration_ALL (adcCard);
+    PostDeferredCall ((DeferredCallbackPtr)ADC_CalDoneDeferred, NULL);
+    return 0;
+}
+
+int CVICALLBACK MasterAcqSetupCB (int p, int c, int ev, void *cbd,
+                                  int e1, int e2)
+{
+    int cardNum;
+    I16 handle;
+    char msg[128];
+
+    if (ev != EVENT_COMMIT) return 0;
+
+    if (isAcquiring || adcCalibrating)
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "ADC: Busy");
+        return 0;
+    }
+
+    /* Step 1: Register (if not already) */
+    if (!adcRegistered)
+    {
+        GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_CARD_NUM, &cardNum);
+        handle = WD_Register_Card (PCI_9846H, (U16)cardNum);
+        if (handle < 0)
+        {
+            snprintf (msg, sizeof(msg), "ADC: Register failed (%d)",
+                      (int)handle);
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS, msg);
+            return 0;
+        }
+        adcCard       = handle;
+        adcRegistered = 1;
+        adcConfigured = 0;
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Registered OK");
+        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
+        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
+        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 0);
+    }
+
+    /* Step 2: Calibrate (background thread) — set flag so cal-done
+       callback will automatically run Configure afterwards */
+    masterSetupPending = 1;
+    adcCalibrating = 1;
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "ADC: Setup — calibrating...");
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_SETUP,
+                      ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
+
+    {
+        CmtThreadFunctionID calID;
+        CmtScheduleThreadPoolFunction (DEFAULT_THREAD_POOL_HANDLE,
+                                       MasterCalThread, NULL, &calID);
+    }
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * MasterAcqStartCB — start acquisition (monitor, no saving)
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK MasterAcqStartCB (int p, int c, int ev, void *cbd,
+                                  int e1, int e2)
+{
+    if (ev != EVENT_COMMIT) return 0;
+    if (ADC_StartCommon (SAVE_NONE, RETRIG_CNT_INF) == 0)
+    {
+        SetCtrlVal (adcTabHandle,    ADC_TAB_ADC_MSG_STATUS,
+                    "ADC: Acquiring (monitor)");
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "ADC: Acquiring (monitor)");
+    }
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * MasterAcqRecordCB — start recording (SAVE_THREAD mode)
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK MasterAcqRecordCB (int p, int c, int ev, void *cbd,
+                                   int e1, int e2)
+{
+    char datPath[512];
+    if (ev != EVENT_COMMIT) return 0;
+
+    ADC_GenerateFilename (recordPath, sizeof (recordPath));
+    snprintf (datPath, sizeof (datPath), "%s.dat", recordPath);
+    recordFile = fopen (datPath, "wb");
+    if (!recordFile)
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "ADC: Cannot open output file");
+        return 0;
+    }
+
+    if (ADC_StartCommon (SAVE_THREAD, RETRIG_CNT_INF) < 0)
+    {
+        fclose (recordFile); recordFile = NULL;
+        return 0;
+    }
+
+    ADC_WriteSidecarHeader (recordPath, SAVE_THREAD);
+    SetCtrlVal (adcTabHandle,    ADC_TAB_ADC_MSG_STATUS,
+                "ADC: Recording (thread)");
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "ADC: Recording");
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * MasterAcqStopCB — stop acquisition
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK MasterAcqStopCB (int p, int c, int ev, void *cbd,
+                                 int e1, int e2)
+{
+    if (ev != EVENT_COMMIT) return 0;
+    ADC_StopAcquisition ();
+    SetCtrlVal (adcTabHandle,    ADC_TAB_ADC_MSG_STATUS,    "ADC: Stopped");
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "ADC: Stopped");
     return 0;
 }

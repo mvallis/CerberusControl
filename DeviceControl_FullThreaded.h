@@ -38,6 +38,8 @@
 #define  ADC_TAB_ADC_BTN_RECORD           20      /* control type: command, callback function: AdcRecordCB */
 #define  ADC_TAB_ADC_TIMER_POLL           21      /* control type: timer, callback function: AdcPollTimerCB */
 #define  ADC_TAB_ADC_BTN_CALIBRATE        22      /* control type: command, callback function: AdcCalibrateCB */
+#define  ADC_TAB_ADC_RING_ZEROPAD         23      /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_RING_WINDOW          24      /* control type: ring, callback function: (none) */
 
      /* tab page panel controls */
 #define  DDS_TAB_DDS_NUM_CLOCK_MHZ        2       /* control type: numeric, callback function: (none) */
@@ -70,6 +72,34 @@
 #define  DDS_TAB_DDS_TIMING_TEXT          29      /* control type: textMsg, callback function: (none) */
 #define  DDS_TAB_DDS_MSG_TIMING_WARN      30      /* control type: textMsg, callback function: (none) */
 #define  DDS_TAB_DDS_RING_RESOURCE        31      /* control type: ring, callback function: (none) */
+
+     /* tab page panel controls */
+#define  MASTER_TAB_MASTER_NUM_CH2_CURR   2       /* control type: color, callback function: (none) */
+#define  MASTER_TAB_MASTER_NUM_CH2_VOLT   3       /* control type: color, callback function: (none) */
+#define  MASTER_TAB_MASTER_NUM_CH1_CURR   4       /* control type: color, callback function: (none) */
+#define  MASTER_TAB_MASTER_NUM_CH1_VOLT   5       /* control type: color, callback function: (none) */
+#define  MASTER_TAB_MASTER_CH2_METER      6       /* control type: scale, callback function: (none) */
+#define  MASTER_TAB_MASTER_CH1_METER      7       /* control type: scale, callback function: (none) */
+#define  MASTER_TAB_MASTER_GRAPH_FFT      8       /* control type: graph, callback function: (none) */
+#define  MASTER_TAB_MASTER_BTN_DDS        9       /* control type: command, callback function: MasterDdsCB */
+#define  MASTER_TAB_MASTER_BTN_TX_RELAY   10      /* control type: command, callback function: MasterTxRelayCB */
+#define  MASTER_TAB_MASTER_BTN_ACQ_STOP   11      /* control type: command, callback function: MasterAcqStopCB */
+#define  MASTER_TAB_MASTER_BTN_ACQ_RECORD 12      /* control type: command, callback function: MasterAcqRecordCB */
+#define  MASTER_TAB_MASTER_BTN_ACQ_START  13      /* control type: command, callback function: MasterAcqStartCB */
+#define  MASTER_TAB_MASTER_BTN_ACQ_SETUP  14      /* control type: command, callback function: MasterAcqSetupCB */
+#define  MASTER_TAB_MASTER_BTN_PSU_ALL    15      /* control type: command, callback function: MasterPsuAllCB */
+#define  MASTER_TAB_MASTER_LED_TX_RELAY   16      /* control type: LED, callback function: (none) */
+#define  MASTER_TAB_MASTER_LED_ADC        17      /* control type: LED, callback function: (none) */
+#define  MASTER_TAB_MASTER_LED_DDS        18      /* control type: LED, callback function: (none) */
+#define  MASTER_TAB_MASTER_LED_PSU        19      /* control type: LED, callback function: (none) */
+#define  MASTER_TAB_STATUS_LABEL          20      /* control type: textMsg, callback function: (none) */
+#define  MASTER_TAB_PSU_LABEL             21      /* control type: textMsg, callback function: (none) */
+#define  MASTER_TAB_MAST_ADC_LABEL        22      /* control type: textMsg, callback function: (none) */
+#define  MASTER_TAB_MASTER_LABEL          23      /* control type: textMsg, callback function: (none) */
+#define  MASTER_TAB_MASTER_MSG_DDS_STATUS 24      /* control type: textMsg, callback function: (none) */
+#define  MASTER_TAB_GRAPH_LABEL           25      /* control type: textMsg, callback function: (none) */
+#define  MASTER_TAB_MASTER_MSG_ADC_STATUS 26      /* control type: textMsg, callback function: (none) */
+#define  MASTER_TAB_MASTER_TIMER_UPDATE   27      /* control type: timer, callback function: MasterUpdateTimerCB */
 
      /* tab page panel controls */
 #define  PSU_TAB_PSU_RING_RESOURCE        2       /* control type: ring, callback function: (none) */
@@ -150,6 +180,14 @@ int  CVICALLBACK DdsInitCalCB(int panel, int control, int event, void *callbackD
 int  CVICALLBACK DdsStartCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK DdsStopCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK MainPanelCB(int panel, int event, void *callbackData, int eventData1, int eventData2);
+int  CVICALLBACK MasterAcqRecordCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+int  CVICALLBACK MasterAcqSetupCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+int  CVICALLBACK MasterAcqStartCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+int  CVICALLBACK MasterAcqStopCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+int  CVICALLBACK MasterDdsCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+int  CVICALLBACK MasterPsuAllCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+int  CVICALLBACK MasterTxRelayCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+int  CVICALLBACK MasterUpdateTimerCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK PsuAllOutCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK PsuConnectCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK PsuDisconnect(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);

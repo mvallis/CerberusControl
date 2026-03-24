@@ -862,3 +862,36 @@ WD_AI_ContScanChannels
   defined in the `.h` file
 - Added Calibrate button dimming to `ADC_StartCommon` and `ADC_StopAcquisition` (was only
   in calibrate-specific callbacks before)
+
+### ADC calibration lockup — diagnosed and fixed
+
+**Problem:** `WD_AD_Auto_Calibration_ALL` in `AdcCalThread` caused UI lockup / memory corruption.
+
+**Root cause (from reviewing `98X6CAL.CPP` in `Digitizer_common\CAutoCal`):**
+All ADLINK calibration examples follow the same pattern:
+```c
+card = WD_Register_Card(card_type, card_num);
+// NO AI_Config, NO CH_Config, NO buffers — nothing
+err = WD_AD_Auto_Calibration_ALL(card);
+WD_Release_Card(card);
+```
+Calibration is a **standalone operation** on a freshly registered card. The previous code called
+`WD_AI_ContBufferReset` inside `AdcCalThread` immediately after calibration — but no buffers
+were registered at that point. Calling `ContBufferReset` with no registered buffers likely
+crashed the driver, corrupting memory and freezing the UI.
+
+**Fixes applied:**
+
+1. **Removed `WD_AI_ContBufferReset` from `AdcCalThread`** — no buffers exist at calibration
+   time. The safety `ContBufferReset` at the top of `ADC_StartCommon` handles any stale state
+   that calibration may leave behind.
+
+2. **`ADC_CalDoneDeferred` now sets `adcConfigured = 0`** — calibration writes new ADC/DAC
+   constants, invalidating any prior `AI_Config`/`CH_Config` state. User must re-Configure
+   after calibration. Status message updated to say "please re-Configure".
+
+3. **All acquisition buttons dimmed after calibration** — Start/Record/Save/Single are dimmed
+   in both `AdcCalibrateCB` (while running) and `ADC_CalDoneDeferred` (after completion, since
+   `adcConfigured` is now 0). Only Configure/Release/Calibrate are re-enabled.
+
+**Correct workflow:** Register → Calibrate → Configure → Acquire
