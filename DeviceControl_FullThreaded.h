@@ -100,6 +100,8 @@
 #define  MASTER_TAB_GRAPH_LABEL           25      /* control type: textMsg, callback function: (none) */
 #define  MASTER_TAB_MASTER_MSG_ADC_STATUS 26      /* control type: textMsg, callback function: (none) */
 #define  MASTER_TAB_MASTER_TIMER_UPDATE   27      /* control type: timer, callback function: MasterUpdateTimerCB */
+#define  MASTER_TAB_MASTER_BTN_SEQUENCE   28      /* control type: command, callback function: MasterSequenceCB */
+#define  MASTER_TAB_MASTER_LED_SAVING     29      /* control type: LED, callback function: (none) */
 
      /* tab page panel controls */
 #define  PSU_TAB_PSU_RING_RESOURCE        2       /* control type: ring, callback function: (none) */
@@ -186,6 +188,7 @@ int  CVICALLBACK MasterAcqStartCB(int panel, int control, int event, void *callb
 int  CVICALLBACK MasterAcqStopCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK MasterDdsCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK MasterPsuAllCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
+int  CVICALLBACK MasterSequenceCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK MasterTxRelayCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK MasterUpdateTimerCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);
 int  CVICALLBACK PsuAllOutCB(int panel, int control, int event, void *callbackData, int eventData1, int eventData2);

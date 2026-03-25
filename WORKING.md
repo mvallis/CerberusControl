@@ -895,3 +895,293 @@ crashed the driver, corrupting memory and freezing the UI.
    `adcConfigured` is now 0). Only Configure/Release/Calibrate are re-enabled.
 
 **Correct workflow:** Register → Calibrate → Configure → Acquire
+
+---
+
+## Implementation Plan: Range-Doppler & RTI Processing Tab
+
+**Date:** 2026-03-25
+**Status:** Planned (not yet implemented)
+**Reference:** `Blunderbuss_code_DB1.c` — BB24 24 GHz FMCW radar system
+
+### Goal
+
+Add a new tab page (tab index 5, after ADC) containing four 2D intensity plots:
+1. **LRX Range-Doppler** — range bins × Doppler bins (one frame per CPI)
+2. **URX Range-Doppler** — same for CH1
+3. **LRX Range-Time Intensity (RTI)** — range bins × time (scrolling, one column per CPI)
+4. **URX Range-Time Intensity (RTI)** — same for CH1
+
+Plus UI controls: CPI chirp count ring, slow-time window selection, colour map, dB floor/ceiling.
+
+---
+
+### Background Theory
+
+In FMCW radar processing, a **Coherent Processing Interval (CPI)** is a block of N consecutive
+chirps processed together. Each chirp produces one fast-time FFT spectrum (range profile).
+Stacking N chirps and performing a second FFT across the slow-time (chirp-to-chirp) dimension
+for each range bin yields a **Range-Doppler map**, revealing target velocity alongside range.
+
+The **RTI plot** is simpler: each CPI contributes a single column of range-bin powers, appended
+to a scrolling 2D image that shows how the range profile evolves over time.
+
+---
+
+### Architecture — Data Flow
+
+The current acquisition pipeline is:
+
+```
+DMA Half-Buffer (poll thread)
+     ├── TSQ → Save thread (disk write)
+     └── memcpy → plotBuffer → PostDeferredCall → ADC_PlotDeferred (single chirp FFT)
+```
+
+The new processing path adds a **CPI accumulator** that collects N chirps before triggering
+a batch 2D processing step:
+
+```
+DMA Half-Buffer (poll thread)
+     ├── TSQ → Save thread (disk write)
+     ├── memcpy → plotBuffer → PostDeferredCall → ADC_PlotDeferred (existing single-chirp)
+     └── memcpy → CPI accumulator (circular)
+                    │
+                    ▼  (when N chirps accumulated)
+              PostDeferredCall → RDP_ProcessDeferred (UI thread)
+                    │
+                    ├── Fast-time FFT × N chirps → complex spectra [N][rangeBins]
+                    ├── Transpose to [rangeBins][N]
+                    ├── Slow-time FFT per range bin → Range-Doppler [rangeBins][N/2]
+                    ├── Magnitude + dB conversion
+                    ├── Append power column to RTI scrolling buffer
+                    └── PlotScaledIntensity × 4 graphs
+```
+
+**Alternative (higher performance):** Use a dedicated processing thread (like BB24's
+`Data_Processing_Thread`) with its own TSQ. The poll thread writes each half-buffer into
+a CPI TSQ; the processing thread reads N items, processes, and posts plot results via
+`PostDeferredCall`. This avoids blocking the UI thread during the compute-heavy FFT stage.
+
+---
+
+### Step-by-Step Implementation Plan
+
+#### Step 1: UIR Tab Creation (CVI User Interface Editor)
+
+Create a new tab page "Range-Doppler" (index 5) in the main tab control. Add:
+
+| Control | Type | Constant Name | Notes |
+|---|---|---|---|
+| LRX Range-Doppler | Graph (2D) | `RDP_TAB_GRAPH_RD_LRX` | For `PlotScaledIntensity` |
+| URX Range-Doppler | Graph (2D) | `RDP_TAB_GRAPH_RD_URX` | |
+| LRX RTI | Graph (2D) | `RDP_TAB_GRAPH_RTI_LRX` | Scrolling range-time |
+| URX RTI | Graph (2D) | `RDP_TAB_GRAPH_RTI_URX` | |
+| CPI Chirps | Ring | `RDP_TAB_RING_CPI` | Items: 64, 128, 256, 512, 1024, 2048 |
+| Slow-Time Window | Ring | `RDP_TAB_RING_SLOW_WIN` | Hann, Hamming, BH, Rectangular |
+| dB Floor | Numeric | `RDP_TAB_NUM_DB_FLOOR` | Default: -80 |
+| dB Ceiling | Numeric | `RDP_TAB_NUM_DB_CEIL` | Default: 0 |
+| Colour Map | Ring | `RDP_TAB_RING_COLORMAP` | Jet, Hot, Grayscale |
+| Enable toggle | LED button | `RDP_TAB_BTN_ENABLE` | Enables/disables CPI collection |
+| Status | Text message | `RDP_TAB_MSG_STATUS` | |
+
+Regenerate `DeviceControl_FullThreaded.h` after editing.
+
+#### Step 2: Globals and Memory Management (~60 lines)
+
+```c
+/* --- Range-Doppler / RTI globals --- */
+static int     rdpTabHandle;                    /* tab panel handle                */
+static int     rdpEnabled       = 0;            /* collection active               */
+static U32     rdpCpiSize       = 256;          /* chirps per CPI (from ring)      */
+static U32     rdpRangeBins     = 0;            /* = plotScans / 2 (half-spectrum)  */
+static U32     rdpChirpCount    = 0;            /* chirps accumulated so far        */
+
+/* CPI accumulator — stores deinterleaved voltage for N chirps × 2 channels.
+   Layout: cpiBuffer[chirp * plotScans * 2 + sample], same as DMA interleave.
+   Allocated when CPI size or plotScans changes. */
+static double *cpiAccum0        = NULL;         /* CH0 voltage, [cpiSize][plotScans] */
+static double *cpiAccum1        = NULL;         /* CH1 voltage, [cpiSize][plotScans] */
+static U32     cpiAccumSize     = 0;            /* current allocation               */
+
+/* Processing output arrays */
+static double *rdResult0        = NULL;         /* Range-Doppler CH0 [rangeBins][cpiSize/2] */
+static double *rdResult1        = NULL;         /* Range-Doppler CH1                        */
+
+/* RTI scrolling buffers — [rangeBins][RTI_HISTORY_LEN] */
+#define RTI_HISTORY_LEN  256                    /* columns of history               */
+static double *rtiBuffer0       = NULL;
+static double *rtiBuffer1       = NULL;
+
+/* Slow-time FFT resources */
+static PFFTTable   rdpSlowTable    = NULL;
+static U32         rdpSlowTableN   = 0;
+static NIComplexNumber *rdpSlowWork = NULL;     /* [cpiSize/2] temp complex array   */
+static NIComplexNumber *rdpSlowOut  = NULL;
+```
+
+Add `RDP_Cleanup()` to free all above, called from `ADC_Cleanup()`.
+
+Add `RDP_EnsureBuffers(U32 rangeBins, U32 cpiSize)` to (re)allocate when parameters change.
+
+#### Step 3: CPI Accumulation from Poll Thread (~40 lines)
+
+In `HardwarePollThread`, after the existing plot trigger, add:
+
+```c
+if (rdpEnabled && rdpChirpCount < rdpCpiSize)
+{
+    /* Deinterleave one chirp into the CPI accumulator */
+    U32 s, off = rdpChirpCount * plotScans;
+    double sc = adcVoltScale / 32768.0;
+    for (s = 0; s < plotScans; s++)
+    {
+        cpiAccum0[off + s] = ((double)src[s * 2    ] - 32768.0) * sc;
+        cpiAccum1[off + s] = ((double)src[s * 2 + 1] - 32768.0) * sc;
+    }
+    rdpChirpCount++;
+
+    if (rdpChirpCount >= rdpCpiSize)
+    {
+        rdpChirpCount = 0;
+        PostDeferredCall ((DeferredCallbackPtr)RDP_ProcessDeferred, NULL);
+    }
+}
+```
+
+**Note:** This deinterleaves and converts in the poll thread, which adds some latency per
+half-buffer. If this becomes a bottleneck, move to a separate thread with a TSQ. The
+deinterleave loop for 256–2048 chirps × 256–4096 samples per chirp is ~0.5–4 M iterations
+per CPI — fast enough for the ~10–100 ms CPI periods typical at 1–10 MHz ADC clock.
+
+#### Step 4: 2D Processing (RDP_ProcessDeferred) (~150 lines)
+
+This runs on the UI thread via `PostDeferredCall`.
+
+```
+For each channel (CH0, CH1):
+
+    1. FAST-TIME FFT (per chirp)
+       for chirp = 0 .. cpiSize-1:
+           copy cpiAccum[chirp * plotScans .. (chirp+1)*plotScans - 1]
+           apply fast-time window (same as existing ADC_ApplyWindow)
+           zero-pad if desired (use existing padFactor)
+           FFTEx → complex output [paddedN]
+           store complex result: fastRe[chirp][bin], fastIm[chirp][bin]
+               (only positive-frequency half: bins 0 .. rangeBins-1)
+
+    2. TRANSPOSE + SLOW-TIME FFT (per range bin)
+       for bin = 0 .. rangeBins-1:
+           extract column: slowWork[k].real = fastRe[k][bin], .imaginary = fastIm[k][bin]
+               for k = 0 .. cpiSize-1
+           apply slow-time window (CxHanWin, CxBlkHarrisWin, etc.)
+           CxFFTEx(slowWork, cpiSize, cpiSize, rdpSlowTable, TRUE, slowOut)
+           for k = 0 .. cpiSize/2 - 1:
+               re = slowOut[k].real; im = slowOut[k].imaginary
+               rdResult[bin * (cpiSize/2) + k] = 20*log10(sqrt(re*re + im*im) + 1e-20)
+                                                  + correction_dB
+
+    3. RTI UPDATE
+       shift rtiBuffer left by one column (memmove)
+       for bin = 0 .. rangeBins-1:
+           rtiBuffer[bin * RTI_HISTORY_LEN + (RTI_HISTORY_LEN-1)]
+               = max power across Doppler bins for this range bin
+               (or: zero-Doppler bin power, for stationary-target RTI)
+```
+
+**Key functions from CVI Analysis Library:**
+- `FFTEx()` — real-to-complex fast-time FFT (already used)
+- `CxFFTEx()` — complex-to-complex slow-time FFT (new — BB24 uses this)
+- `CxHanWin()`, `CxBlkHarrisWin()` — complex window functions for slow-time
+
+**Memory layout for `rdResult`:**
+Row-major `[rangeBins][cpiSize/2]` — this is what `PlotScaledIntensity` expects
+when called with `numColumns = cpiSize/2, numRows = rangeBins`.
+
+#### Step 5: 2D Plotting (~80 lines)
+
+After processing, plot all four graphs:
+
+```c
+/* Colour map setup (done once at init or when user changes selection) */
+ColorMapEntry colourMap[] = {
+    { 0.0,  { 0x00, 0x00, 0x80 } },   /* dark blue  = floor   */
+    { 0.25, { 0x00, 0x00, 0xFF } },   /* blue                 */
+    { 0.50, { 0x00, 0xFF, 0x00 } },   /* green                */
+    { 0.75, { 0xFF, 0xFF, 0x00 } },   /* yellow               */
+    { 1.0,  { 0xFF, 0x00, 0x00 } },   /* red        = ceiling */
+};
+
+/* Range-Doppler plots */
+DeleteGraphPlot (rdpTabHandle, RDP_TAB_GRAPH_RD_LRX, -1, VAL_DELAYED_DRAW);
+PlotScaledIntensity (rdpTabHandle, RDP_TAB_GRAPH_RD_LRX,
+                     rdResult0,
+                     cpiSize / 2,           /* numColumns (Doppler bins) */
+                     rangeBins,             /* numRows (range bins)      */
+                     VAL_DOUBLE,
+                     rangePerBin, 0.0,      /* y scaling: range axis     */
+                     dopplerPerBin, 0.0,    /* x scaling: velocity axis  */
+                     colourMap, VAL_BLACK,
+                     numColours, 1, 0);
+
+/* RTI plots */
+DeleteGraphPlot (rdpTabHandle, RDP_TAB_GRAPH_RTI_LRX, -1, VAL_DELAYED_DRAW);
+PlotScaledIntensity (rdpTabHandle, RDP_TAB_GRAPH_RTI_LRX,
+                     rtiBuffer0,
+                     RTI_HISTORY_LEN,       /* numColumns (time)         */
+                     rangeBins,             /* numRows (range bins)      */
+                     VAL_DOUBLE,
+                     rangePerBin, 0.0,
+                     1.0, 0.0,              /* x = CPI index             */
+                     colourMap, VAL_BLACK,
+                     numColours, 1, 0);
+```
+
+**Axis scaling for Range-Doppler x-axis (Doppler/velocity):**
+- Doppler frequency per bin = PRF / cpiSize (Hz)
+- PRF = trigger frequency (from DDS tab: `DDS_TAB_DDS_NUM_TRIG_FREQ`)
+- Velocity per bin = (Doppler per bin × c) / (2 × f_carrier)
+- f_carrier = FREQ_MULTIPLIER × actStart (or centre frequency)
+- Unambiguous velocity = ±PRF / 2
+
+#### Step 6: UI Integration (~30 lines)
+
+- Read `rdpTabHandle` via `GetPanelHandleFromTabPage` in `main()` (tab index 5)
+- Add `RDP_TAB_RING_CPI` callback to update `rdpCpiSize` and reallocate buffers
+- Add `RDP_TAB_BTN_ENABLE` callback to set/clear `rdpEnabled` and reset `rdpChirpCount`
+- Dim the enable button when not acquiring; un-dim when acquisition starts
+
+#### Step 7: Cleanup
+
+- Add `RDP_Cleanup()` call to `ADC_Cleanup()`
+- Free all dynamic arrays, destroy slow-time FFT table
+- Reset `rdpEnabled` in `ADC_StopAcquisition()`
+
+---
+
+### Dependencies and Considerations
+
+1. **UIR must be edited first** — all graph and control IDs are assigned by the CVI UI Editor.
+   Use provisional `#ifndef` defines during development (same pattern as FFT window/zero-pad
+   rings).
+
+2. **Thread safety** — CPI accumulation writes from the poll thread; processing reads from
+   the UI thread. The `PostDeferredCall` mechanism ensures no concurrent access (poll thread
+   resets `rdpChirpCount = 0` and stops writing before the deferred call runs). If timing
+   is tight, add a `rdpBusy` flag (same pattern as `plotBusy`).
+
+3. **Memory** — Worst case: 2048 chirps × 4096 samples × 2 channels × 8 bytes = 128 MB for
+   CPI accumulators. Practical values (256 chirps × 256 samples) need only ~1 MB. Allocate
+   dynamically based on UI ring values.
+
+4. **Performance** — Fast-time FFT of 2048 chirps × 256-point = ~0.5M complex operations.
+   Slow-time FFT of 128 range bins × 2048-point = ~0.3M complex operations. Total ~1M
+   operations per CPI per channel — well within real-time at typical CPI rates (1–10 Hz).
+   If needed, move to the dedicated processing thread architecture.
+
+5. **Existing FFT infrastructure** — Reuse `ADC_ApplyWindow`, `ADC_GetFFTTable` for fast-time.
+   Need new `CxFFTEx` + complex window calls for slow-time (not yet in the codebase, but
+   available in CVI's `analysis.h`).
+
+6. **Colour maps** — BB24 uses custom `ColorMapEntry` arrays. CVI's `PlotScaledIntensity`
+   accepts these directly. Provide 2-3 preset maps (Jet, Hot, Grayscale) selectable via ring.
