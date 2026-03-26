@@ -11,6 +11,10 @@ cvibuild.*/
 *.dll
 *.lib
 
+# Radar data files 
+*.dat
+*.hdr
+
 # === Additional MATLAB Specifics ===
 *.asv          # MATLAB Editor autosave files
 *.slxc         # Simulink cache files

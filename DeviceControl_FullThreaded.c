@@ -38,6 +38,14 @@
 #define READ_BUF_LEN        256
 #define UIR_FILE            "DeviceControl_FullThreaded.uir"
 
+/* Provisional — replace when UIR buttons are added and header regenerated */
+#ifndef MASTER_TAB_MASTER_BTN_SHUTDOWN
+#define MASTER_TAB_MASTER_BTN_SHUTDOWN  30
+#endif
+#ifndef MASTER_TAB_MASTER_BTN_RESET_STAR
+#define MASTER_TAB_MASTER_BTN_RESET_STAR  31
+#endif
+
 /*---------------------------------------------------------------------------
  * Global Variables
  *---------------------------------------------------------------------------*/
@@ -91,13 +99,33 @@ static void SetPSUDimmed        (int dimmed);
 /* ADC */
 static void ADC_Cleanup (void);
 
-/* Master sequence */
-static int CVICALLBACK MasterSequenceThread (void *data);
+/* Master setup (async: register → calibrate → re-register → configure) */
+static int  CVICALLBACK MasterSetupThread         (void *data);
+static void CVICALLBACK MasterSetupStatusDeferred (void *data);
+static void CVICALLBACK MasterSetupConfigDeferred (void *data);
+static void CVICALLBACK MasterSetupDoneDeferred   (void *data);
+static void CVICALLBACK MasterSetupFailDeferred   (void *data);
+
+/* Master startup sequence */
+static int  CVICALLBACK MasterSequenceThread (void *data);
 static void CVICALLBACK SeqStep_PSU       (void *data);
 static void CVICALLBACK SeqStep_DDS       (void *data);
 static void CVICALLBACK SeqStep_ADCSetup  (void *data);
 static void CVICALLBACK SeqStep_ADCStart  (void *data);
 static void CVICALLBACK SeqStep_Done      (void *data);
+
+/* Master shutdown sequence */
+static int  CVICALLBACK MasterShutdownThread (void *data);
+static void CVICALLBACK ShutStep_ADC   (void *data);
+static void CVICALLBACK ShutStep_Relay (void *data);
+static void CVICALLBACK ShutStep_DDS   (void *data);
+static void CVICALLBACK ShutStep_PSU   (void *data);
+static void CVICALLBACK ShutStep_Done  (void *data);
+
+/* Master reset-and-start (synchronized DDS/ADC restart for INS sync) */
+int CVICALLBACK MasterResetStartCB (int panel, int control, int event,
+                                     void *callbackData, int eventData1,
+                                     int eventData2);
 
 /*===========================================================================
  *  MAIN
@@ -142,6 +170,22 @@ int main (int argc, char *argv[])
     SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_RECORD, ATTR_DIMMED, 1);
     SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_STOP,   ATTR_DIMMED, 1);
     SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_TIMER_UPDATE,   ATTR_ENABLED, 0);
+
+    /* ADC tab: all buttons dimmed except Register until card is registered */
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
+
+    /* DDS tab: all action buttons dimmed until connected */
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_DISCONNECT, ATTR_DIMMED, 1);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_INIT_CAL,   ATTR_DIMMED, 1);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,       ATTR_DIMMED, 1);
 
     ScanVISAResources ();
 
@@ -673,8 +717,9 @@ int CVICALLBACK DdsDisconnectCB (int p, int c, int ev, void *cbd, int e1, int e2
 {
     if (ev != EVENT_COMMIT) return 0;
 
-    if (ddsSweepActive) { dds_powerdown (); ddsSweepActive = 0; }
-    deinit_dds ();
+    //if (ddsSweepActive) { dds_powerdown (); ddsSweepActive = 0; }, 
+	dds_powerdown(); // making sure off
+    deinit_dds (); //ensure turned off then quit
     ddsConnected = 0;
 
     SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Status: Disconnected");
@@ -693,11 +738,14 @@ int CVICALLBACK DdsInitCalCB (int p, int c, int ev, void *cbd, int e1, int e2)
 
     SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Resetting & calibrating...");
     ProcessSystemEvents ();   /* update UI before blocking call */
-
-    if (!dds_reset ())
+	
+	dds_powerdown(); // making sure off
+    dds_reset(); // safe reset
+	if (!dds_powerup ()) { return 0; } // switch on
+    if (!dds_reset ()) //double safe reset
     { SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Reset FAILED"); return 0; }
 
-    if (!ad9914_calibrate_dac ())
+    if (!ad9914_calibrate_dac ()) // calibrate
     { SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "DAC cal FAILED"); return 0; }
 
     SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Init & calibration OK");
@@ -720,11 +768,11 @@ int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
     if (chirpMode == 2)
     {
         GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CW_FREQ, &cwFreq);
-
-        if (!dds_reset ())   { return 0; }
-        if (!dds_powerup ()) { return 0; }
-        Delay(0.01);
-        if (!ad9914_calibrate_dac ()) { return 0; }
+	// Temporarily removing, keep for now
+        //if (!dds_reset ())   { return 0; }
+        //if (!dds_powerup ()) { return 0; }
+        //Delay(0.01);
+        //if (!ad9914_calibrate_dac ()) { return 0; }
         if (!ad9914_single_tone (cwFreq, &actCW)) { return 0; }
         if (!dds_update ()) { return 0; }
 
@@ -752,10 +800,10 @@ int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
             return 0;
         }
 
-        if (!dds_reset ())   { return 0; }
-        if (!dds_powerup ()) { return 0; }
-        Delay(0.01);
-        if (!ad9914_calibrate_dac ()) { return 0; }
+        //if (!dds_reset ())   { return 0; } // Don't need all these resets and re-calibration.
+        //if (!dds_powerup ()) { return 0; }
+        //Delay(0.01);
+        //if (!ad9914_calibrate_dac ()) { return 0; }
 
         if (chirpMode == 0)
         {
@@ -805,7 +853,7 @@ int CVICALLBACK DdsStopCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
     if (ev != EVENT_COMMIT) return 0;
 
-    dds_powerdown ();
+    //dds_powerdown (); // Not sure that this is the correct way to go about this. Is automatically switching it into CW mode the correct way for ending FMCW sweeps?
     ddsSweepActive = 0;
 
     SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Sweep stopped");
@@ -1302,10 +1350,10 @@ static int CVICALLBACK DiskSaveThread (void *data)
  *   in the time domain and (if N is a power of 2) the windowed, zero-padded
  *   FFT magnitude with coherent-gain amplitude correction.
  *
- *   FFT output is in dBV (peak), where 0 dBV = 1 V peak amplitude.
- *   A full-scale ±5 V sine reads ≈ +14 dBV; ±1 V sine reads ≈ 0 dBV.
- *   Formula:  corrected_dB = 20·log10(|X|) − 20·log10(N/2) + window_correction_dB
- *   where window_correction_dB = −20·log10(coherentgain)  from GetWinProperties().
+ *   FFT output is in dBm, converted from peak voltage via:
+ *     dBm = dBV_peak − 3 dB (peak→RMS) + 30 dB (dBV→dBm)
+ *   Formula:  corrected_dB = 20·log10(|X|) − 20·log10(N/2) + window_correction + 27
+ *   where window_correction = −20·log10(coherentgain)  from GetWinProperties().
  *---------------------------------------------------------------------------*/
 static void CVICALLBACK ADC_PlotDeferred (void *data)
 {
@@ -1343,14 +1391,43 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
 
     /* ---- Time-domain plot ---- */
     {
-        int ph;
+        int    ph;
+        double yLimit = adcVoltScale * 1.1;
+        double adcClk, timePerSample_us;
+
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_CLK, &adcClk);
+        timePerSample_us = (adcClk > 0.0) ? 1.0 / adcClk : 1.0;   /* us */
+
         DeleteGraphPlot (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, -1, VAL_DELAYED_DRAW);
+        SetAxisScalingMode (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME,
+                            VAL_LEFT_YAXIS, VAL_MANUAL, -yLimit, yLimit);
+
+        /* Bottom x-axis: sample index */
+        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME,
+                          ATTR_ACTIVE_XAXIS, VAL_BOTTOM_XAXIS);
+        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME,
+                          ATTR_XNAME, "Sample");
+
+        /* Top x-axis: time (us) */
+        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME,
+                          ATTR_ACTIVE_XAXIS, VAL_TOP_XAXIS);
+        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME,
+                          ATTR_XAXIS_GAIN, timePerSample_us);
+        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME,
+                          ATTR_XAXIS_OFFSET, 0.0);
+        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME,
+                          ATTR_XNAME, "Time (us)");
+
+        /* Plot against bottom (sample) axis */
+        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME,
+                          ATTR_ACTIVE_XAXIS, VAL_BOTTOM_XAXIS);
+
         ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ch0, (int)scans,
-                    VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
+                    VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
         SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ph,
                           ATTR_PLOT_LG_TEXT, "LRX (CH0)");
         ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ch1, (int)scans,
-                    VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+                    VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
         SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ph,
                           ATTR_PLOT_LG_TEXT, "URX (CH1)");
     }
@@ -1369,18 +1446,21 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
         if (!tbl)                         { plotBusy = 0; return; }
         if (!ADC_EnsureFFTBufs (paddedN)) { plotBusy = 0; return; }
 
-        /* Amplitude correction (dBV, peak, one-sided spectrum):
-             correction_dB = window_correction - 20·log10(N/2)
+        /* Amplitude correction (dBm, one-sided spectrum):
+             correction_dB = window_correction - 20·log10(N/2) - 3 + 30
+           −3 dB converts peak → RMS;  +30 dB converts dBV → dBm.
            N is the number of real signal samples (scans), not the padded length,
            because the signal energy comes from scans points.                      */
         GetWinProperties (windowType, &winProps);
         window_correction_dB = (winProps.coherentgain > 0.0)
                                 ? -20.0 * log10 (winProps.coherentgain)
                                 :  0.0;
-        correction_dB = window_correction_dB - 20.0 * log10 ((double)(scans / 2)); // Needs the additional values later once the radar characterisation has been completed!
-		// Additional terms are:... 
+        correction_dB = window_correction_dB
+                        - 20.0 * log10 ((double)(scans / 2))
+                        - 3.0    /* peak → RMS  */
+                        + 30.0;  /* dBV → dBm   */
 
-        /* --- CH0 (LRX): window → zero-pad → FFTEx → magnitude → dBV --- */
+        /* --- CH0 (LRX): window → zero-pad → FFTEx → magnitude → dBm --- */
         memcpy (fftPaddedWork, ch0, scans * sizeof (double));
         ADC_ApplyWindow (fftPaddedWork, scans, windowType);
         if (paddedN > scans)
@@ -1471,9 +1551,9 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
                     if (fftMag1[k] > fftMag1[peak1]) peak1 = k;
                 }
             }
-            snprintf (lgText0, sizeof(lgText0), "LRX  %.1fm  %.1fdBV",
+            snprintf (lgText0, sizeof(lgText0), "LRX  %.2fm  %.2fdBm",
                       (double)peak0 * rangePerBin, fftMag0[peak0]);
-            snprintf (lgText1, sizeof(lgText1), "URX  %.1fm  %.1fdBV",
+            snprintf (lgText1, sizeof(lgText1), "URX  %.2fm  %.2fdBm",
                       (double)peak1 * rangePerBin, fftMag1[peak1]);
 
             /* Plot against bottom (range) axis */
@@ -1481,11 +1561,11 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
                               ATTR_ACTIVE_XAXIS, VAL_BOTTOM_XAXIS);
 
             ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, fftMag0, (int)halfPadN,
-                        VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
+                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
             SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, ph,
                               ATTR_PLOT_LG_TEXT, lgText0);
             ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, fftMag1, (int)halfPadN,
-                        VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
             SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, ph,
                               ATTR_PLOT_LG_TEXT, lgText1);
 
@@ -1522,11 +1602,11 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
                               ATTR_ACTIVE_XAXIS, VAL_BOTTOM_XAXIS);
 
             ph = PlotY (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, fftMag0, (int)halfPadN,
-                        VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
+                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
             SetPlotAttribute (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, ph,
                               ATTR_PLOT_LG_TEXT, lgText0);
             ph = PlotY (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, fftMag1, (int)halfPadN,
-                        VAL_DOUBLE, VAL_THIN_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
             SetPlotAttribute (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, ph,
                               ATTR_PLOT_LG_TEXT, lgText1);
 
@@ -1645,6 +1725,8 @@ static void CVICALLBACK ADC_StopDeferred (void *data)
 static int ADC_StartCommon (int mode, U32 reTrgCnt)
 {
     I16  err;
+    int  trigPolIdx;
+    U16  trigPol;
     char msg[256];
 
     if (!adcConfigured)
@@ -1660,6 +1742,11 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
 
     saveMode = mode;
 
+    /* Read trigger polarity from UI ring.
+       Ring items: 0 = Positive edge, 1 = Negative edge. */
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TRIG_POL, &trigPolIdx);
+    trigPol = (trigPolIdx == 1) ? WD_AI_TrgNegative : WD_AI_TrgPositive;
+
     /* Clear any stale buffer registrations from a previous acquisition cycle
        or from WD_AD_Auto_Calibration_ALL (which may register internal buffers).
        This MUST come before Trig_Config — calling ContBufferReset after
@@ -1670,11 +1757,11 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
 
     /* Configure trigger (matches ADLINK reference sample order:
        Trig_Config → AsyncDblBufferMode → ContBufferSetup → ContScanChannels).
-       POST trigger, external digital, positive edge. */
+       POST trigger, external digital, polarity from UI ring. */
     err = WD_AI_Trig_Config (adcCard,
                              WD_AI_TRGMOD_POST,
                              WD_AI_TRGSRC_ExtD,
-                             WD_AI_TrgPositive,
+                             trigPol,
                              0, 0.0, 0, 0, 0,
                              (U32)reTrgCnt);
     if (err != NoError)
@@ -1891,6 +1978,7 @@ int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
 
     SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Registered OK");
 
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REGISTER,  ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 0);
@@ -1904,7 +1992,6 @@ int CVICALLBACK AdcRegisterCB (int p, int c, int ev, void *cbd, int e1, int e2)
  *---------------------------------------------------------------------------*/
 static volatile int adcCalibrating    = 0;
 static volatile I16 adcCalResult      = 0;
-static volatile int masterSetupPending = 0;  /* auto-configure after cal */
 static volatile int adcCalCardNum     = 0;   /* card number for cal thread */
 
 static int CVICALLBACK AdcCalThread (void *data)
@@ -1965,10 +2052,10 @@ static void CVICALLBACK ADC_CalDoneDeferred (void *data)
         SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
     }
 
-    /* Enable Configure (which will re-register) and Release.
-       Dim Calibrate — user should configure next, not calibrate again.
-       Dim all acquisition buttons — card is not configured. */
-    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
+    /* Card is released — user must re-register before configuring.
+       Only Register is enabled; everything else is dimmed. */
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REGISTER,  ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
@@ -1977,7 +2064,6 @@ static void CVICALLBACK ADC_CalDoneDeferred (void *data)
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
 
     /* Master tab — un-dim setup button so user can re-setup */
-    masterSetupPending = 0;
     SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_SETUP,
                       ATTR_DIMMED, 0);
     SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
@@ -2215,13 +2301,15 @@ int CVICALLBACK AdcReleaseCB (int p, int c, int ev, void *cbd, int e1, int e2)
     }
 
     SetCtrlVal       (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Released");
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REGISTER,  ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
-    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
     return 0;
 }
 
@@ -2358,7 +2446,7 @@ int CVICALLBACK MasterUpdateTimerCB (int p, int c, int ev, void *cbd,
     SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_LED_TX_RELAY, relay1State);
     SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_TX_RELAY,
                       ATTR_LABEL_TEXT,
-                      relay1State ? "Weapons: ON" : "Weapons: OFF");
+                      relay1State ? "Active: On" : "Active: Off");
 
     /* ---- DDS LED ---- */
     SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_LED_DDS, ddsSweepActive);
@@ -2573,58 +2661,41 @@ int CVICALLBACK MasterDdsCB (int p, int c, int ev, void *cbd,
 }
 
 /*---------------------------------------------------------------------------
- * MasterAcqSetupCB — one-button: Register → Configure
- *   "Target Lock" while not configured → "Target Locked" when ready.
- *   Calibration is available separately via the ADC tab Calibrate button.
+ * MasterAcqSetupCB — one-button: Register → Calibrate → Release →
+ *   Re-register → Configure.  Runs in a background thread because
+ *   calibration blocks for several seconds.
  *---------------------------------------------------------------------------*/
-int CVICALLBACK MasterAcqSetupCB (int p, int c, int ev, void *cbd,
-                                  int e1, int e2)
+static volatile int masterSetupRunning    = 0;
+static volatile int masterSetupCardNum    = 0;
+static volatile int masterSetupConfigDone = 0;
+
+/* Deferred: update master status label (pass a string-literal pointer) */
+static void CVICALLBACK MasterSetupStatusDeferred (void *data)
 {
-    int cardNum;
-    I16 handle;
-    char msg[128];
-
-    if (ev != EVENT_COMMIT) return 0;
-
-    if (isAcquiring || adcCalibrating)
-    {
-        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                    "Targeting Status: Busy");
-        return 0;
-    }
-
     SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                "Targeting Status: Target Lock...");
+                (const char *)data);
+}
 
-    /* Step 1: Register (if not already) */
-    if (!adcRegistered)
-    {
-        GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_CARD_NUM, &cardNum);
-        handle = WD_Register_Card (PCI_9846H, (U16)cardNum);
-        if (handle < 0)
-        {
-            snprintf (msg, sizeof(msg),
-                      "Targeting Status: Register failed (%d)", (int)handle);
-            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS, msg);
-            return 0;
-        }
-        adcCard       = handle;
-        adcRegistered = 1;
-        adcConfigured = 0;
-        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Registered OK");
-        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
-        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
-        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 0);
-    }
-
-    /* Step 2: Configure directly (no calibration step) */
+/* Deferred: run AdcConfigureCB on UI thread, then signal done */
+static void CVICALLBACK MasterSetupConfigDeferred (void *data)
+{
     AdcConfigureCB (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE,
                     EVENT_COMMIT, NULL, 0, 0);
+    masterSetupConfigDone = 1;
+}
+
+/* Deferred: final UI update on success */
+static void CVICALLBACK MasterSetupDoneDeferred (void *data)
+{
+    masterSetupRunning = 0;
+    adcCalibrating     = 0;
 
     if (adcConfigured)
     {
         SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
                     "Targeting Status: Target Locked");
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS,
+                    "ADC: Calibrated & Configured OK");
         SetCtrlAttribute (masterTabHandle,
                           MASTER_TAB_MASTER_BTN_ACQ_START,  ATTR_DIMMED, 0);
         SetCtrlAttribute (masterTabHandle,
@@ -2635,9 +2706,155 @@ int CVICALLBACK MasterAcqSetupCB (int p, int c, int ev, void *cbd,
     else
     {
         SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                    "Targeting Status: Lock Failed");
+                    "Targeting Status: Configure Failed");
     }
 
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_SETUP,
+                      ATTR_DIMMED, 0);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_RESET_STAR,
+                      ATTR_DIMMED, 0);
+    /* ADC tab: card is registered+configured, enable the usual buttons */
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REGISTER,  ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 0);
+}
+
+/* Deferred: final UI update on failure */
+static void CVICALLBACK MasterSetupFailDeferred (void *data)
+{
+    masterSetupRunning = 0;
+    adcCalibrating     = 0;
+
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                (const char *)data);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_SETUP,
+                      ATTR_DIMMED, 0);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_RESET_STAR,
+                      ATTR_DIMMED, 0);
+
+    /* Set ADC tab buttons based on current card state */
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REGISTER,  ATTR_DIMMED, adcRegistered);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, !adcRegistered);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, !adcRegistered);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, !adcRegistered);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
+}
+
+/* Background thread: Register → Calibrate → Wait → Release → Re-register
+   → Configure (deferred) */
+static int CVICALLBACK MasterSetupThread (void *data)
+{
+    I16 handle, calResult;
+
+    /* Step 1: Release if already registered */
+    if (adcRegistered)
+    {
+        WD_Release_Card (adcCard);
+        adcRegistered = 0;
+        adcConfigured = 0;
+    }
+
+    /* Step 2: Register fresh */
+    PostDeferredCall ((DeferredCallbackPtr)MasterSetupStatusDeferred,
+                      "Targeting Status: Registering...");
+    handle = WD_Register_Card (PCI_9846H, (U16)masterSetupCardNum);
+    if (handle < 0)
+    {
+        PostDeferredCall ((DeferredCallbackPtr)MasterSetupFailDeferred,
+                          "Targeting Status: Register failed");
+        return 0;
+    }
+    adcCard       = handle;
+    adcRegistered = 1;
+
+    /* Step 3: Calibrate */
+    PostDeferredCall ((DeferredCallbackPtr)MasterSetupStatusDeferred,
+                      "Targeting Status: Calibrating...");
+    calResult = WD_AD_Auto_Calibration_ALL (adcCard);
+    if (calResult < NoError)
+    {
+        PostDeferredCall ((DeferredCallbackPtr)MasterSetupFailDeferred,
+                          "Targeting Status: Calibration failed");
+        return 0;
+    }
+
+    /* Step 4: Wait 5 s for internal processing to settle */
+    PostDeferredCall ((DeferredCallbackPtr)MasterSetupStatusDeferred,
+                      "Targeting Status: Cal settling...");
+    Delay (5.0);
+
+    /* Step 5: Release */
+    WD_Release_Card (adcCard);
+    adcRegistered = 0;
+    adcConfigured = 0;
+
+    /* Step 6: Re-register */
+    PostDeferredCall ((DeferredCallbackPtr)MasterSetupStatusDeferred,
+                      "Targeting Status: Re-registering...");
+    handle = WD_Register_Card (PCI_9846H, (U16)masterSetupCardNum);
+    if (handle < 0)
+    {
+        PostDeferredCall ((DeferredCallbackPtr)MasterSetupFailDeferred,
+                          "Targeting Status: Re-register failed");
+        return 0;
+    }
+    adcCard       = handle;
+    adcRegistered = 1;
+
+    /* Step 7: Configure (must run on UI thread — reads ring controls) */
+    masterSetupConfigDone = 0;
+    PostDeferredCall ((DeferredCallbackPtr)MasterSetupConfigDeferred, NULL);
+    while (!masterSetupConfigDone)
+        Delay (0.05);
+
+    /* Step 8: Done */
+    PostDeferredCall ((DeferredCallbackPtr)MasterSetupDoneDeferred, NULL);
+    return 0;
+}
+
+int CVICALLBACK MasterAcqSetupCB (int p, int c, int ev, void *cbd,
+                                  int e1, int e2)
+{
+    CmtThreadFunctionID setupThreadID;
+    int cardNum;
+
+    if (ev != EVENT_COMMIT) return 0;
+
+    if (isAcquiring || adcCalibrating || masterSetupRunning)
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "Targeting Status: Busy");
+        return 0;
+    }
+
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_CARD_NUM, &cardNum);
+    masterSetupCardNum = cardNum;
+    masterSetupRunning = 1;
+    adcCalibrating     = 1;   /* prevent standalone calibrate button */
+
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: Target Lock...");
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_SETUP,
+                      ATTR_DIMMED, 1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_RESET_STAR,
+                      ATTR_DIMMED, 1);
+
+    /* Dim all ADC tab buttons during setup */
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REGISTER,  ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
+
+    CmtScheduleThreadPoolFunction (DEFAULT_THREAD_POOL_HANDLE,
+                                   MasterSetupThread, NULL, &setupThreadID);
     return 0;
 }
 
@@ -2707,11 +2924,12 @@ int CVICALLBACK MasterAcqStopCB (int p, int c, int ev, void *cbd,
 
 /*---------------------------------------------------------------------------
  * MasterSequenceCB / MasterSequenceThread — single-press automated startup
- *   PSU on → 3 s → DDS start → 3 s → ADC register+configure → start → 3 s
+ *   PSU on → 2 s → DDS start → 2 s → ADC register+calibrate+re-register+
+ *   configure (wait for completion) → start sampling → 2 s → done.
  *
  *   Each step runs on the UI thread via PostDeferredCall (because the master
  *   callbacks touch UI controls).  The background thread waits for each step
- *   to complete, then delays 3 s before posting the next step.
+ *   to complete, then delays 2 s before posting the next step.
  *---------------------------------------------------------------------------*/
 static volatile int seqRunning  = 0;   /* 1 while sequence thread is active */
 static volatile int seqStepDone = 0;   /* set by each deferred step         */
@@ -2774,23 +2992,15 @@ static void CVICALLBACK SeqStep_DDS (void *data)
     seqStepDone = 1;
 }
 
-/* ---- Deferred step: ADC register + configure ---- */
+/* ---- Deferred step: ADC register + calibrate + re-register + configure
+       MasterAcqSetupCB spawns MasterSetupThread; the sequence thread
+       polls masterSetupRunning to wait for completion. ---- */
 static void CVICALLBACK SeqStep_ADCSetup (void *data)
 {
-    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                "Targeting Status: Target Lock...");
-
-    if (!adcConfigured)
+    if (!adcConfigured && !masterSetupRunning)
     {
         MasterAcqSetupCB (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_SETUP,
                           EVENT_COMMIT, NULL, 0, 0);
-    }
-
-    if (!adcConfigured)
-    {
-        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                    "Targeting Status: Lock FAILED");
-        seqAbort = 1;
     }
     seqStepDone = 1;
 }
@@ -2823,10 +3033,14 @@ static void CVICALLBACK SeqStep_Done (void *data)
                 "Targeting Status: Tracking");
     SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_SEQUENCE,
                       ATTR_DIMMED, 0);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_SHUTDOWN,
+                      ATTR_DIMMED, 0);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_RESET_STAR,
+                      ATTR_DIMMED, 0);
     seqRunning = 0;
 }
 
-/* ---- Background thread: orchestrate steps with 3 s delays ---- */
+/* ---- Background thread: orchestrate steps with 2 s delays ---- */
 static int CVICALLBACK MasterSequenceThread (void *data)
 {
     /* Step 1: PSU */
@@ -2834,27 +3048,39 @@ static int CVICALLBACK MasterSequenceThread (void *data)
     PostDeferredCall ((DeferredCallbackPtr)SeqStep_PSU, NULL);
     SeqWaitForStep ();
     if (seqAbort) goto seq_fail;
-    Delay (3.0);
+    Delay (2.0);
 
     /* Step 2: DDS */
     seqStepDone = 0;
     PostDeferredCall ((DeferredCallbackPtr)SeqStep_DDS, NULL);
     SeqWaitForStep ();
     if (seqAbort) goto seq_fail;
-    Delay (3.0);
+    Delay (2.0);
 
-    /* Step 3: ADC register + configure */
+    /* Step 3: ADC register + calibrate + re-register + configure
+       MasterAcqSetupCB spawns MasterSetupThread — poll until it finishes */
     seqStepDone = 0;
     PostDeferredCall ((DeferredCallbackPtr)SeqStep_ADCSetup, NULL);
     SeqWaitForStep ();
     if (seqAbort) goto seq_fail;
 
-    /* Step 4: start acquisition */
+    /* Wait for the full setup (including calibration) to complete */
+    while (masterSetupRunning && !seqAbort)
+        Delay (0.1);
+
+    if (!adcConfigured)
+    {
+        seqAbort = 1;
+        goto seq_fail;
+    }
+    Delay (2.0);
+
+    /* Step 4: start acquisition (monitor, no save) */
     seqStepDone = 0;
     PostDeferredCall ((DeferredCallbackPtr)SeqStep_ADCStart, NULL);
     SeqWaitForStep ();
     if (seqAbort) goto seq_fail;
-    Delay (3.0);
+    Delay (2.0);
 
     /* Step 5: done */
     PostDeferredCall ((DeferredCallbackPtr)SeqStep_Done, NULL);
@@ -2886,8 +3112,357 @@ int CVICALLBACK MasterSequenceCB (int p, int c, int ev, void *cbd,
 
     SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_SEQUENCE,
                       ATTR_DIMMED, 1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_SHUTDOWN,
+                      ATTR_DIMMED, 1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_RESET_STAR,
+                      ATTR_DIMMED, 1);
 
     CmtScheduleThreadPoolFunction (DEFAULT_THREAD_POOL_HANDLE,
                                    MasterSequenceThread, NULL, &seqThreadID);
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * MasterShutdownCB / MasterShutdownThread — single-press safe shutdown
+ *   Stop ADC → 2 s → Relay off → 2 s → DDS off → 2 s → PSU off → done.
+ *---------------------------------------------------------------------------*/
+
+/* ---- Deferred step: stop ADC acquisition/saving, then release card ---- */
+static void CVICALLBACK ShutStep_ADC (void *data)
+{
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: Stopping ADC...");
+
+    if (isAcquiring)
+        ADC_StopAcquisition ();
+
+    /* Release the card so next startup does a clean
+       Register → Calibrate → Re-register → Configure cycle */
+    ADC_FreeBuffer (&hDmaBuffer1, &dmaBuffer1);
+    ADC_FreeBuffer (&hDmaBuffer2, &dmaBuffer2);
+    if (adcRegistered)
+    {
+        WD_Release_Card (adcCard);
+        adcCard       = -1;
+        adcRegistered = 0;
+        adcConfigured = 0;
+    }
+
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Released");
+
+    /* Reset ADC tab buttons to initial state */
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REGISTER,  ATTR_DIMMED, 0);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
+
+    seqStepDone = 1;
+}
+
+/* ---- Deferred step: turn off both relays ---- */
+static void CVICALLBACK ShutStep_Relay (void *data)
+{
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: Relay off...");
+
+    if (relaySession != VI_NULL)
+    {
+        if (relay1State)
+        {
+            relay1State = 0;
+            Relay_Set (1, 0);
+            SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY1, 0);
+            SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY1,
+                              ATTR_LABEL_TEXT, "Relay 1: OFF");
+        }
+        if (relay2State)
+        {
+            relay2State = 0;
+            Relay_Set (2, 0);
+            SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY2, 0);
+            SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY2,
+                              ATTR_LABEL_TEXT, "Relay 2: OFF");
+        }
+    }
+    seqStepDone = 1;
+}
+
+/* ---- Deferred step: stop DDS chirp and disconnect ---- */
+static void CVICALLBACK ShutStep_DDS (void *data)
+{
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: DDS off...");
+
+    if (ddsSweepActive)
+    {
+        dds_powerdown ();
+        ddsSweepActive = 0;
+    }
+
+    if (ddsConnected)
+    {
+        deinit_dds ();
+        ddsConnected = 0;
+    }
+
+    /* Reset DDS tab to disconnected state */
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Status: Disconnected");
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_CONNECT,    ATTR_DIMMED, 0);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_DISCONNECT, ATTR_DIMMED, 1);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_INIT_CAL,   ATTR_DIMMED, 1);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START,      ATTR_DIMMED, 1);
+    SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,       ATTR_DIMMED, 1);
+
+    seqStepDone = 1;
+}
+
+/* ---- Deferred step: turn off all PSU outputs ---- */
+static void CVICALLBACK ShutStep_PSU (void *data)
+{
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: Reactor off...");
+
+    if (psuSession != VI_NULL && (ch1OutState || ch2OutState || ch3OutState))
+    {
+        ch1OutState = ch2OutState = ch3OutState = 0;
+        PSU_OutputOnOff (1, 0);
+        PSU_OutputOnOff (2, 0);
+        PSU_OutputOnOff (3, 0);
+
+        SetCtrlVal (psuTabHandle, PSU_TAB_PSU_LED_CH1_OUTPUT, 0);
+        SetCtrlVal (psuTabHandle, PSU_TAB_PSU_LED_CH2_OUTPUT, 0);
+        SetCtrlVal (psuTabHandle, PSU_TAB_PSU_LED_CH3_OUTPUT, 0);
+        SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CH1_OUTPUT,
+                          ATTR_LABEL_TEXT, "CH1 OUT: OFF");
+        SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CH2_OUTPUT,
+                          ATTR_LABEL_TEXT, "CH2 OUT: OFF");
+        SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_CH3_OUTPUT,
+                          ATTR_LABEL_TEXT, "CH3 OUT: OFF");
+        SetCtrlAttribute (psuTabHandle, PSU_TAB_PSU_BTN_ALL_OUTPUT,
+                          ATTR_LABEL_TEXT, "ALL OUT: OFF");
+    }
+    seqStepDone = 1;
+}
+
+/* ---- Deferred step: shutdown complete ---- */
+static void CVICALLBACK ShutStep_Done (void *data)
+{
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: Offline");
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_SHUTDOWN,
+                      ATTR_DIMMED, 0);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_SEQUENCE,
+                      ATTR_DIMMED, 0);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_RESET_STAR,
+                      ATTR_DIMMED, 0);
+    seqRunning = 0;
+}
+
+/* ---- Background thread: orchestrate shutdown with 2 s delays ---- */
+static int CVICALLBACK MasterShutdownThread (void *data)
+{
+    /* Step 1: Stop ADC */
+    seqStepDone = 0;
+    PostDeferredCall ((DeferredCallbackPtr)ShutStep_ADC, NULL);
+    SeqWaitForStep ();
+    Delay (2.0);
+
+    /* Step 2: Relay off */
+    seqStepDone = 0;
+    PostDeferredCall ((DeferredCallbackPtr)ShutStep_Relay, NULL);
+    SeqWaitForStep ();
+    Delay (2.0);
+
+    /* Step 3: DDS off */
+    seqStepDone = 0;
+    PostDeferredCall ((DeferredCallbackPtr)ShutStep_DDS, NULL);
+    SeqWaitForStep ();
+    Delay (2.0);
+
+    /* Step 4: PSU off */
+    seqStepDone = 0;
+    PostDeferredCall ((DeferredCallbackPtr)ShutStep_PSU, NULL);
+    SeqWaitForStep ();
+    Delay (2.0);
+
+    /* Done */
+    PostDeferredCall ((DeferredCallbackPtr)ShutStep_Done, NULL);
+    return 0;
+}
+
+int CVICALLBACK MasterShutdownCB (int p, int c, int ev, void *cbd,
+                                   int e1, int e2)
+{
+    CmtThreadFunctionID shutThreadID;
+
+    if (ev != EVENT_COMMIT) return 0;
+
+    if (seqRunning)
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "Targeting Status: Sequence in progress...");
+        return 0;
+    }
+
+    seqRunning  = 1;
+    seqAbort    = 0;
+    seqStepDone = 0;
+
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_SHUTDOWN,
+                      ATTR_DIMMED, 1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_SEQUENCE,
+                      ATTR_DIMMED, 1);
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_RESET_STAR,
+                      ATTR_DIMMED, 1);
+
+    CmtScheduleThreadPoolFunction (DEFAULT_THREAD_POOL_HANDLE,
+                                   MasterShutdownThread, NULL, &shutThreadID);
+    return 0;
+}
+
+/*---------------------------------------------------------------------------
+ * MasterResetStartCB — synchronized DDS/ADC restart for INS time sync
+ *
+ *   Provides a clean time-zero by:
+ *   1. Stopping DDS chirp (halts trigger clock — no more ADC triggers)
+ *   2. Stopping current acquisition if running
+ *   3. Registering ADC if needed (calibration assumed already done)
+ *   4. Configuring ADC if needed
+ *   5. Starting ADC recording (armed, waiting for trigger)
+ *   6. Starting DDS chirp (triggers begin — recording starts immediately)
+ *
+ *   Runs synchronously on the UI thread for tight timing between steps 5-6.
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK MasterResetStartCB (int p, int c, int ev, void *cbd,
+                                     int e1, int e2)
+{
+    int  cardNum;
+    I16  handle;
+    char datPath[512];
+
+    if (ev != EVENT_COMMIT) return 0;
+
+    if (seqRunning || masterSetupRunning || adcCalibrating)
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "Targeting Status: Busy");
+        return 0;
+    }
+
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: Reset & Start...");
+    ProcessSystemEvents ();
+
+    /* ---- Step 1: Stop DDS chirp — halt the trigger clock ---- */
+    if (ddsSweepActive)
+    {
+        dds_powerdown ();
+        ddsSweepActive = 0;
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Sweep stopped");
+        SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START, ATTR_DIMMED, 0);
+        SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,  ATTR_DIMMED, 1);
+    }
+
+    /* ---- Step 2: Stop current acquisition if running ---- */
+    if (isAcquiring)
+        ADC_StopAcquisition ();
+
+    /* ---- Step 3: Register ADC if not already registered ---- */
+    if (!adcRegistered)
+    {
+        GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_CARD_NUM, &cardNum);
+        handle = WD_Register_Card (PCI_9846H, (U16)cardNum);
+        if (handle < 0)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "Targeting Status: ADC Register failed");
+            return 0;
+        }
+        adcCard       = handle;
+        adcRegistered = 1;
+        adcConfigured = 0;
+        SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REGISTER, ATTR_DIMMED, 1);
+    }
+
+    /* ---- Step 4: Configure ADC if not already configured ---- */
+    if (!adcConfigured)
+    {
+        AdcConfigureCB (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE,
+                        EVENT_COMMIT, NULL, 0, 0);
+    }
+    if (!adcConfigured)
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "Targeting Status: ADC Configure failed");
+        return 0;
+    }
+
+    /* ---- Step 5: Start ADC recording — armed, waiting for trigger ---- */
+    ADC_GenerateFilename (recordPath, sizeof (recordPath));
+    snprintf (datPath, sizeof (datPath), "%s.dat", recordPath);
+    recordFile = fopen (datPath, "wb");
+    if (!recordFile)
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "Targeting Status: File error");
+        return 0;
+    }
+
+    if (ADC_StartCommon (SAVE_THREAD, RETRIG_CNT_INF) < 0)
+    {
+        fclose (recordFile);
+        recordFile = NULL;
+        return 0;
+    }
+
+    ADC_WriteSidecarHeader (recordPath, SAVE_THREAD);
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS,
+                "ADC: Armed — waiting for trigger...");
+    ProcessSystemEvents ();
+
+    /* ---- Step 6: Start DDS — triggers begin, recording starts ---- */
+    if (!ddsConnected)
+    {
+        int idx;
+        ScanVISAResources ();
+        idx = FindResourceBySubstring ("ASRL19");
+        if (idx < 0)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "Targeting Status: DDS not found");
+            return 0;
+        }
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_RESOURCE, idx);
+        DdsConnectCB (ddsTabHandle, DDS_TAB_DDS_BTN_CONNECT,
+                      EVENT_COMMIT, NULL, 0, 0);
+        if (!ddsConnected)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "Targeting Status: DDS connect failed");
+            return 0;
+        }
+    }
+
+    DdsStartCB (ddsTabHandle, DDS_TAB_DDS_BTN_START,
+                EVENT_COMMIT, NULL, 0, 0);
+
+    if (!ddsSweepActive)
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "Targeting Status: DDS restart failed");
+        return 0;
+    }
+
+    /* ---- Done — recording with synchronized time-zero ---- */
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: Recording (synced)");
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS,
+                "ADC: Recording (synced reset)");
+
     return 0;
 }
