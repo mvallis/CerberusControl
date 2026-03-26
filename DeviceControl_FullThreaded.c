@@ -114,6 +114,12 @@ static void CVICALLBACK SeqStep_ADCSetup  (void *data);
 static void CVICALLBACK SeqStep_ADCStart  (void *data);
 static void CVICALLBACK SeqStep_Done      (void *data);
 
+/* New sequence steps for redesigned startup */
+static void CVICALLBACK SeqStep_ConnectRelayDds (void *data);
+static void CVICALLBACK SeqStep_DdsInitCW       (void *data);
+static void CVICALLBACK SeqStep_TxRelayOn       (void *data);
+static void CVICALLBACK SeqStep_DdsStartChirp   (void *data);
+
 /* Master shutdown sequence */
 static int  CVICALLBACK MasterShutdownThread (void *data);
 static void CVICALLBACK ShutStep_ADC   (void *data);
@@ -851,12 +857,36 @@ int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
 
 int CVICALLBACK DdsStopCB (int p, int c, int ev, void *cbd, int e1, int e2)
 {
+    int    chirpMode;
+    double cwFreq, actCW;
+    char   msg[256];
+
     if (ev != EVENT_COMMIT) return 0;
 
-    //dds_powerdown (); // Not sure that this is the correct way to go about this. Is automatically switching it into CW mode the correct way for ending FMCW sweeps?
-    ddsSweepActive = 0;
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE, &chirpMode);
 
-    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Sweep stopped");
+    /* If running an FMCW waveform (triggered or free-run), switch to CW
+       to cleanly stop the DROver trigger signal without powering down */
+    if (chirpMode == 0 || chirpMode == 1)
+    {
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CW_FREQ, &cwFreq);
+        if (ad9914_single_tone (cwFreq, &actCW) && dds_update ())
+        {
+            sprintf (msg, "Stopped sweep -> CW %.6f MHz", actCW);
+            SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, msg);
+        }
+        else
+        {
+            SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS,
+                        "Sweep stopped (CW switch failed)");
+        }
+    }
+    else
+    {
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Sweep stopped");
+    }
+
+    ddsSweepActive = 0;
     SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START, ATTR_DIMMED, 0);
     SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,  ATTR_DIMMED, 1);
 
@@ -1035,9 +1065,13 @@ static double ADC_RangeToVolts (int rangeConst)
 static void ADC_GenerateFilename (char *buf, int bufLen)
 {
     int month, day, year, hours, minutes, seconds;
+
+    /* Ensure output directory exists (no-op if already present) */
+    MakeDir ("Radar Data");
+
     GetSystemDate (&month, &day, &year);
     GetSystemTime (&hours, &minutes, &seconds);
-    snprintf (buf, bufLen, "CerberusData_%04d%02d%02d_%02d%02d%02d",
+    snprintf (buf, bufLen, "Radar Data\\CerberusData_%04d%02d%02d_%02d%02d%02d",
               year, month, day, hours, minutes, seconds);
 }
 
@@ -2624,6 +2658,8 @@ int CVICALLBACK MasterDdsCB (int p, int c, int ev, void *cbd,
                              int e1, int e2)
 {
     if (ev != EVENT_COMMIT) return 0;
+
+    /* Auto-connect DDS if not already connected */
     if (!ddsConnected)
     {
         int idx;
@@ -2642,20 +2678,51 @@ int CVICALLBACK MasterDdsCB (int p, int c, int ev, void *cbd,
         if (!ddsConnected)
             return 0;   /* DdsConnectCB already set an error status */
     }
+
     if (ddsSweepActive)
     {
-        /* Stop — delegate to existing DdsStopCB logic */
-        dds_powerdown ();
-        ddsSweepActive = 0;
-        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Sweep stopped");
-        SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START, ATTR_DIMMED, 0);
-        SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,  ATTR_DIMMED, 1);
+        /* Active: swap to CW mode (stops DROver trigger cleanly) */
+        DdsStopCB (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,
+                   EVENT_COMMIT, NULL, 0, 0);
     }
     else
     {
-        /* Start — trigger DdsStartCB which reads params from the DDS tab */
+        /* Not active: full init/cal then start FMCW triggered sweep */
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_DDS_STATUS,
+                    "DDS: Init & calibrating...");
+
+        /* Full init/cal sequence: powerdown → reset → powerup → reset → DAC cal */
+        dds_powerdown ();
+        dds_reset ();
+        if (!dds_powerup ())
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_DDS_STATUS,
+                        "DDS: Powerup FAILED");
+            return 0;
+        }
+        if (!dds_reset ())
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_DDS_STATUS,
+                        "DDS: Reset FAILED");
+            return 0;
+        }
+        if (!ad9914_calibrate_dac ())
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_DDS_STATUS,
+                        "DDS: DAC cal FAILED");
+            return 0;
+        }
+
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Init & calibration OK");
+
+        /* Force triggered (DRCTRL) chirp mode and start FMCW sweep */
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE, 0);
         DdsStartCB (ddsTabHandle, DDS_TAB_DDS_BTN_START,
                     EVENT_COMMIT, NULL, 0, 0);
+
+        if (ddsSweepActive)
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_DDS_STATUS,
+                        "DDS: FMCW triggered sweep active");
     }
     return 0;
 }
@@ -2924,12 +2991,14 @@ int CVICALLBACK MasterAcqStopCB (int p, int c, int ev, void *cbd,
 
 /*---------------------------------------------------------------------------
  * MasterSequenceCB / MasterSequenceThread — single-press automated startup
- *   PSU on → 2 s → DDS start → 2 s → ADC register+calibrate+re-register+
- *   configure (wait for completion) → start sampling → 2 s → done.
+ *   PSU on → 0.5 s (verify non-zero) → connect relay + DDS →
+ *   DDS init/cal + CW start → 0.5 s → ADC register+calibrate+re-register+
+ *   configure → start monitor acq → 0.5 s → TX relay on → 0.5 s →
+ *   DRG triggered chirp → done.
  *
  *   Each step runs on the UI thread via PostDeferredCall (because the master
  *   callbacks touch UI controls).  The background thread waits for each step
- *   to complete, then delays 2 s before posting the next step.
+ *   to complete, then delays before posting the next step.
  *---------------------------------------------------------------------------*/
 static volatile int seqRunning  = 0;   /* 1 while sequence thread is active */
 static volatile int seqStepDone = 0;   /* set by each deferred step         */
@@ -3040,31 +3109,209 @@ static void CVICALLBACK SeqStep_Done (void *data)
     seqRunning = 0;
 }
 
-/* ---- Background thread: orchestrate steps with 2 s delays ---- */
+/* ---- Deferred step: connect relay and DDS if not already connected ---- */
+static void CVICALLBACK SeqStep_ConnectRelayDds (void *data)
+{
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: Connecting peripherals...");
+
+    /* Connect relay if not connected */
+    if (relaySession == VI_NULL)
+    {
+        int idx;
+        ScanVISAResources ();
+        idx = FindResourceBySubstring ("ASRL18");
+        if (idx < 0)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "Targeting Status: Relay not found");
+            seqAbort = 1;
+            seqStepDone = 1;
+            return;
+        }
+        SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_RING_RESOURCE, idx);
+        if (Relay_Connect (resourceList[idx]) < 0)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "Targeting Status: Relay connect failed");
+            seqAbort = 1;
+            seqStepDone = 1;
+            return;
+        }
+        SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_MSG_STATUS, "Status: Connected");
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_CONNECT,    ATTR_DIMMED, 1);
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_DISCONNECT, ATTR_DIMMED, 0);
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY1,       ATTR_DIMMED, 0);
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY2,       ATTR_DIMMED, 0);
+        relay1State = relay2State = 0;
+        SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY1, 0);
+        SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY2, 0);
+    }
+
+    /* Connect DDS if not connected */
+    if (!ddsConnected)
+    {
+        int idx;
+        ScanVISAResources ();
+        idx = FindResourceBySubstring ("ASRL19");
+        if (idx < 0)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "Targeting Status: DDS not found");
+            seqAbort = 1;
+            seqStepDone = 1;
+            return;
+        }
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_RESOURCE, idx);
+        DdsConnectCB (ddsTabHandle, DDS_TAB_DDS_BTN_CONNECT,
+                      EVENT_COMMIT, NULL, 0, 0);
+        if (!ddsConnected)
+        {
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "Targeting Status: DDS connect failed");
+            seqAbort = 1;
+            seqStepDone = 1;
+            return;
+        }
+    }
+
+    seqStepDone = 1;
+}
+
+/* ---- Deferred step: DDS init/cal then start FMCW triggered sweep ---- */
+static void CVICALLBACK SeqStep_DdsInitCW (void *data)
+{
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: DDS init & sweep...");
+
+    /* Full init/cal sequence: powerdown → reset → powerup → reset → calibrate */
+    dds_powerdown ();
+    dds_reset ();
+    if (!dds_powerup ())
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "Targeting Status: DDS powerup FAILED");
+        seqAbort = 1;
+        seqStepDone = 1;
+        return;
+    }
+    if (!dds_reset ())
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "Targeting Status: DDS reset FAILED");
+        seqAbort = 1;
+        seqStepDone = 1;
+        return;
+    }
+    if (!ad9914_calibrate_dac ())
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "Targeting Status: DDS DAC cal FAILED");
+        seqAbort = 1;
+        seqStepDone = 1;
+        return;
+    }
+
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Init & calibration OK");
+
+    /* Force triggered (DRCTRL) mode and start FMCW sweep directly */
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE, 0);
+    DdsStartCB (ddsTabHandle, DDS_TAB_DDS_BTN_START,
+                EVENT_COMMIT, NULL, 0, 0);
+
+    if (!ddsSweepActive)
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "Targeting Status: DDS sweep start FAILED");
+        seqAbort = 1;
+    }
+
+    seqStepDone = 1;
+}
+
+/* ---- Deferred step: switch on TX relay (relay 1) ---- */
+static void CVICALLBACK SeqStep_TxRelayOn (void *data)
+{
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: TX relay on...");
+
+    if (!relay1State)
+    {
+        relay1State = 1;
+        if (Relay_Set (1, 1) < 0)
+        {
+            relay1State = 0;
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                        "Targeting Status: TX relay FAILED");
+            seqAbort = 1;
+            seqStepDone = 1;
+            return;
+        }
+        SetCtrlVal (relayTabHandle, RELAY_TAB_RELAY_LED_RLY1, 1);
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY1,
+                          ATTR_LABEL_TEXT, "Relay 1: ON");
+    }
+
+    seqStepDone = 1;
+}
+
+/* ---- Deferred step: start DRG triggered chirp ---- */
+static void CVICALLBACK SeqStep_DdsStartChirp (void *data)
+{
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: Starting chirp...");
+
+    /* Force triggered (DRCTRL) mode and start chirp */
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE, 0);
+    DdsStartCB (ddsTabHandle, DDS_TAB_DDS_BTN_START,
+                EVENT_COMMIT, NULL, 0, 0);
+
+    if (!ddsSweepActive)
+    {
+        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                    "Targeting Status: Chirp start FAILED");
+        seqAbort = 1;
+    }
+    seqStepDone = 1;
+}
+
+/* ---- Background thread: orchestrate startup sequence ---- */
 static int CVICALLBACK MasterSequenceThread (void *data)
 {
-    /* Step 1: PSU */
+    /* Step 1: PSU on */
     seqStepDone = 0;
     PostDeferredCall ((DeferredCallbackPtr)SeqStep_PSU, NULL);
     SeqWaitForStep ();
     if (seqAbort) goto seq_fail;
-    Delay (2.0);
 
-    /* Step 2: DDS */
+    /* Verify power output is non-zero, then wait 0.5 s */
+    Delay (0.5);
+    if (!(ch1OutState && ch2OutState && ch3OutState))
+    {
+        seqAbort = 1;
+        goto seq_fail;
+    }
+
+    /* Step 2: Connect relay and DDS */
     seqStepDone = 0;
-    PostDeferredCall ((DeferredCallbackPtr)SeqStep_DDS, NULL);
+    PostDeferredCall ((DeferredCallbackPtr)SeqStep_ConnectRelayDds, NULL);
     SeqWaitForStep ();
     if (seqAbort) goto seq_fail;
-    Delay (2.0);
 
-    /* Step 3: ADC register + calibrate + re-register + configure
-       MasterAcqSetupCB spawns MasterSetupThread — poll until it finishes */
+    /* Step 3: DDS init/cal + start FMCW triggered sweep */
+    seqStepDone = 0;
+    PostDeferredCall ((DeferredCallbackPtr)SeqStep_DdsInitCW, NULL);
+    SeqWaitForStep ();
+    if (seqAbort) goto seq_fail;
+    Delay (0.5);
+
+    /* Step 4: ADC register + calibrate + re-register + configure */
     seqStepDone = 0;
     PostDeferredCall ((DeferredCallbackPtr)SeqStep_ADCSetup, NULL);
     SeqWaitForStep ();
     if (seqAbort) goto seq_fail;
 
-    /* Wait for the full setup (including calibration) to complete */
+    /* Wait for the setup thread (including calibration) to complete */
     while (masterSetupRunning && !seqAbort)
         Delay (0.1);
 
@@ -3073,16 +3320,22 @@ static int CVICALLBACK MasterSequenceThread (void *data)
         seqAbort = 1;
         goto seq_fail;
     }
-    Delay (2.0);
 
-    /* Step 4: start acquisition (monitor, no save) */
+    /* Step 5: Start non-saving acquisition */
     seqStepDone = 0;
     PostDeferredCall ((DeferredCallbackPtr)SeqStep_ADCStart, NULL);
     SeqWaitForStep ();
     if (seqAbort) goto seq_fail;
-    Delay (2.0);
+    Delay (0.5);
 
-    /* Step 5: done */
+    /* Step 6: TX relay on */
+    seqStepDone = 0;
+    PostDeferredCall ((DeferredCallbackPtr)SeqStep_TxRelayOn, NULL);
+    SeqWaitForStep ();
+    if (seqAbort) goto seq_fail;
+    Delay (0.5);
+
+    /* Done */
     PostDeferredCall ((DeferredCallbackPtr)SeqStep_Done, NULL);
     return 0;
 
@@ -3168,7 +3421,7 @@ static void CVICALLBACK ShutStep_ADC (void *data)
 static void CVICALLBACK ShutStep_Relay (void *data)
 {
     SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                "Targeting Status: Relay off...");
+                "Targeting Status: Relay off & disconnect...");
 
     if (relaySession != VI_NULL)
     {
@@ -3188,6 +3441,16 @@ static void CVICALLBACK ShutStep_Relay (void *data)
             SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY2,
                               ATTR_LABEL_TEXT, "Relay 2: OFF");
         }
+
+        /* Disconnect relay serial session */
+        viClose (relaySession);
+        relaySession = VI_NULL;
+
+        SetCtrlVal       (relayTabHandle, RELAY_TAB_RELAY_MSG_STATUS, "Status: Disconnected");
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_CONNECT,    ATTR_DIMMED, 0);
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_DISCONNECT, ATTR_DIMMED, 1);
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY1,       ATTR_DIMMED, 1);
+        SetCtrlAttribute (relayTabHandle, RELAY_TAB_RELAY_BTN_RLY2,       ATTR_DIMMED, 1);
     }
     seqStepDone = 1;
 }
@@ -3196,10 +3459,20 @@ static void CVICALLBACK ShutStep_Relay (void *data)
 static void CVICALLBACK ShutStep_DDS (void *data)
 {
     SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                "Targeting Status: DDS off...");
+                "Targeting Status: DDS stop & disconnect...");
 
     if (ddsSweepActive)
     {
+        /* Switch to CW first for FMCW modes to cleanly stop DROver trigger */
+        int chirpMode;
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE, &chirpMode);
+        if (chirpMode == 0 || chirpMode == 1)
+        {
+            double cwFreq, actCW;
+            GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CW_FREQ, &cwFreq);
+            ad9914_single_tone (cwFreq, &actCW);
+            dds_update ();
+        }
         dds_powerdown ();
         ddsSweepActive = 0;
     }
@@ -3329,14 +3602,14 @@ int CVICALLBACK MasterShutdownCB (int p, int c, int ev, void *cbd,
  * MasterResetStartCB — synchronized DDS/ADC restart for INS time sync
  *
  *   Provides a clean time-zero by:
- *   1. Stopping DDS chirp (halts trigger clock — no more ADC triggers)
- *   2. Stopping current acquisition if running
- *   3. Registering ADC if needed (calibration assumed already done)
- *   4. Configuring ADC if needed
- *   5. Starting ADC recording (armed, waiting for trigger)
- *   6. Starting DDS chirp (triggers begin — recording starts immediately)
+ *   1. Stopping any acquisition
+ *   2. Stopping DDS chirp and switching to CW mode
+ *   3. Configuring ADC (register if needed)
+ *   4. Starting a saving acquisition (armed, waiting for trigger)
+ *   5. Switching DDS to triggered sweep (triggers begin — recording starts)
  *
- *   Runs synchronously on the UI thread for tight timing between steps 5-6.
+ *   0.5 s delay between each step.
+ *   Runs synchronously on the UI thread.
  *---------------------------------------------------------------------------*/
 int CVICALLBACK MasterResetStartCB (int p, int c, int ev, void *cbd,
                                      int e1, int e2)
@@ -3358,21 +3631,20 @@ int CVICALLBACK MasterResetStartCB (int p, int c, int ev, void *cbd,
                 "Targeting Status: Reset & Start...");
     ProcessSystemEvents ();
 
-    /* ---- Step 1: Stop DDS chirp — halt the trigger clock ---- */
-    if (ddsSweepActive)
-    {
-        dds_powerdown ();
-        ddsSweepActive = 0;
-        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Sweep stopped");
-        SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START, ATTR_DIMMED, 0);
-        SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,  ATTR_DIMMED, 1);
-    }
-
-    /* ---- Step 2: Stop current acquisition if running ---- */
+    /* ---- Step 1: Stop any acquisition ---- */
     if (isAcquiring)
         ADC_StopAcquisition ();
+    Delay (0.5);
 
-    /* ---- Step 3: Register ADC if not already registered ---- */
+    /* ---- Step 2: Stop DDS and switch to CW mode ---- */
+    if (ddsSweepActive)
+    {
+        DdsStopCB (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,
+                   EVENT_COMMIT, NULL, 0, 0);
+    }
+    Delay (0.5);
+
+    /* ---- Step 3: Configure ADC (register if needed) ---- */
     if (!adcRegistered)
     {
         GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_CARD_NUM, &cardNum);
@@ -3388,8 +3660,6 @@ int CVICALLBACK MasterResetStartCB (int p, int c, int ev, void *cbd,
         adcConfigured = 0;
         SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REGISTER, ATTR_DIMMED, 1);
     }
-
-    /* ---- Step 4: Configure ADC if not already configured ---- */
     if (!adcConfigured)
     {
         AdcConfigureCB (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE,
@@ -3401,8 +3671,9 @@ int CVICALLBACK MasterResetStartCB (int p, int c, int ev, void *cbd,
                     "Targeting Status: ADC Configure failed");
         return 0;
     }
+    Delay (0.5);
 
-    /* ---- Step 5: Start ADC recording — armed, waiting for trigger ---- */
+    /* ---- Step 4: Start saving acquisition — armed, waiting for trigger ---- */
     ADC_GenerateFilename (recordPath, sizeof (recordPath));
     snprintf (datPath, sizeof (datPath), "%s.dat", recordPath);
     recordFile = fopen (datPath, "wb");
@@ -3423,31 +3694,10 @@ int CVICALLBACK MasterResetStartCB (int p, int c, int ev, void *cbd,
     ADC_WriteSidecarHeader (recordPath, SAVE_THREAD);
     SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS,
                 "ADC: Armed — waiting for trigger...");
-    ProcessSystemEvents ();
+    Delay (0.5);
 
-    /* ---- Step 6: Start DDS — triggers begin, recording starts ---- */
-    if (!ddsConnected)
-    {
-        int idx;
-        ScanVISAResources ();
-        idx = FindResourceBySubstring ("ASRL19");
-        if (idx < 0)
-        {
-            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                        "Targeting Status: DDS not found");
-            return 0;
-        }
-        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_RESOURCE, idx);
-        DdsConnectCB (ddsTabHandle, DDS_TAB_DDS_BTN_CONNECT,
-                      EVENT_COMMIT, NULL, 0, 0);
-        if (!ddsConnected)
-        {
-            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                        "Targeting Status: DDS connect failed");
-            return 0;
-        }
-    }
-
+    /* ---- Step 5: Switch DDS to triggered sweep ---- */
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE, 0);
     DdsStartCB (ddsTabHandle, DDS_TAB_DDS_BTN_START,
                 EVENT_COMMIT, NULL, 0, 0);
 
