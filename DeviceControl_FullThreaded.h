@@ -66,12 +66,14 @@
 #define  DDS_TAB_DDS_NUM_CALC_PERIOD      23      /* control type: numeric, callback function: (none) */
 #define  DDS_TAB_DDS_NUM_CHIRP_STEPS      24      /* control type: numeric, callback function: (none) */
 #define  DDS_TAB_DDS_NUM_SYNC_CLK         25      /* control type: numeric, callback function: (none) */
-#define  DDS_TAB_DDS_NUM_ACT_START        26      /* control type: numeric, callback function: (none) */
-#define  DDS_TAB_DDS_RING_CHIRP_MODE      27      /* control type: ring, callback function: (none) */
-#define  DDS_TAB_DDS_MSG_STATUS           28      /* control type: textMsg, callback function: (none) */
-#define  DDS_TAB_DDS_TIMING_TEXT          29      /* control type: textMsg, callback function: (none) */
-#define  DDS_TAB_DDS_MSG_TIMING_WARN      30      /* control type: textMsg, callback function: (none) */
-#define  DDS_TAB_DDS_RING_RESOURCE        31      /* control type: ring, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_TX_BW            26      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_TX_CENTRE        27      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_NUM_ACT_START        28      /* control type: numeric, callback function: (none) */
+#define  DDS_TAB_DDS_RING_CHIRP_MODE      29      /* control type: ring, callback function: (none) */
+#define  DDS_TAB_DDS_MSG_STATUS           30      /* control type: textMsg, callback function: (none) */
+#define  DDS_TAB_DDS_TIMING_TEXT          31      /* control type: textMsg, callback function: (none) */
+#define  DDS_TAB_DDS_MSG_TIMING_WARN      32      /* control type: textMsg, callback function: (none) */
+#define  DDS_TAB_DDS_RING_RESOURCE        33      /* control type: ring, callback function: (none) */
 
      /* tab page panel controls */
 #define  MASTER_TAB_MASTER_NUM_CH2_CURR   2       /* control type: color, callback function: (none) */

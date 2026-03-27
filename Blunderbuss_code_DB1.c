@@ -421,7 +421,7 @@ static int CVICALLBACK Data_Processing_Thread (void *ctrlID){
 				GetCtrlVal (panel, PANEL_WINDOW_RING, &windowchoice);
 				GetWinProperties (windowchoice, &constants);
 	            window_gain_correction = -20*log10(constants.coherentgain);
-	            correction_dB =  -3 -10*log10(50) +30 -20*log10(size/2) + window_gain_correction - 90.3090;
+	            correction_dB =  -3 -10*log10(50) +30 -20*log10(size/2) + window_gain_correction - 90.3090; // last term is direct from binary to dB!
 	            correction_dB_Slow = -20*log10(RE) + window_gain_correction + correction_dB;
 				
 			// fast time FFT 

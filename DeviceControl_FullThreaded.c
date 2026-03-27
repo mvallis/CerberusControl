@@ -925,7 +925,8 @@ int CVICALLBACK DdsDivRatioCB (int p, int c, int ev, void *cbd, int e1, int e2)
 
 #define SAVE_NONE    0
 #define SAVE_THREAD  1                  /* user-space TSQ → fwrite thread            */
-#define SAVE_TOFILE  2                  /* WD_AI_AsyncDblBufferToFile (driver-managed)*/
+#define SAVE_TOFILE  2                  /* WD_AI_AsyncDblBufferToFile (driver-managed)
+// Define the Trig Digital threshold level here!?
 
 /* Radar physical constants for FFT axis scaling */
 #define SPEED_OF_LIGHT      299792458.0 /* m/s                                       */
@@ -1388,6 +1389,7 @@ static int CVICALLBACK DiskSaveThread (void *data)
  *     dBm = dBV_peak − 3 dB (peak→RMS) + 30 dB (dBV→dBm)
  *   Formula:  corrected_dB = 20·log10(|X|) − 20·log10(N/2) + window_correction + 27
  *   where window_correction = −20·log10(coherentgain)  from GetWinProperties().
+ *   Need additional factor for -10*log10(50)!
  *---------------------------------------------------------------------------*/
 static void CVICALLBACK ADC_PlotDeferred (void *data)
 {
@@ -1457,11 +1459,11 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
                           ATTR_ACTIVE_XAXIS, VAL_BOTTOM_XAXIS);
 
         ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ch0, (int)scans,
-                    VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
+                    VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_GREEN);
         SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ph,
                           ATTR_PLOT_LG_TEXT, "LRX (CH0)");
         ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ch1, (int)scans,
-                    VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+                    VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_MAGENTA);
         SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, ph,
                           ATTR_PLOT_LG_TEXT, "URX (CH1)");
     }
@@ -1490,9 +1492,11 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
                                 ? -20.0 * log10 (winProps.coherentgain)
                                 :  0.0;
         correction_dB = window_correction_dB
-                        - 20.0 * log10 ((double)(scans / 2))
+                        - 20.0 * log10 ((double)(scans / 2)) // length of FFT
                         - 3.0    /* peak → RMS  */
-                        + 30.0;  /* dBV → dBm   */
+                        + 30.0 /* dBW → dBm   */
+						- 10.0*log10(50.0);  /* 50 ohm input   */
+						// account for bits for voltage like BB24? 
 
         /* --- CH0 (LRX): window → zero-pad → FFTEx → magnitude → dBm --- */
         memcpy (fftPaddedWork, ch0, scans * sizeof (double));
@@ -1595,11 +1599,11 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
                               ATTR_ACTIVE_XAXIS, VAL_BOTTOM_XAXIS);
 
             ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, fftMag0, (int)halfPadN,
-                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
+                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_GREEN);
             SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, ph,
                               ATTR_PLOT_LG_TEXT, lgText0);
             ph = PlotY (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, fftMag1, (int)halfPadN,
-                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_MAGENTA);
             SetPlotAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT, ph,
                               ATTR_PLOT_LG_TEXT, lgText1);
 
@@ -1636,11 +1640,11 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
                               ATTR_ACTIVE_XAXIS, VAL_BOTTOM_XAXIS);
 
             ph = PlotY (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, fftMag0, (int)halfPadN,
-                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_RED);
+                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_GREEN);
             SetPlotAttribute (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, ph,
                               ATTR_PLOT_LG_TEXT, lgText0);
             ph = PlotY (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, fftMag1, (int)halfPadN,
-                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_BLUE);
+                        VAL_DOUBLE, VAL_FAT_LINE, VAL_EMPTY_SQUARE, VAL_SOLID, 1, VAL_MAGENTA);
             SetPlotAttribute (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, ph,
                               ATTR_PLOT_LG_TEXT, lgText1);
 
@@ -1791,12 +1795,12 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
 
     /* Configure trigger (matches ADLINK reference sample order:
        Trig_Config → AsyncDblBufferMode → ContBufferSetup → ContScanChannels).
-       POST trigger, external digital, polarity from UI ring. */
+       POST trigger, external digital, polarity from UI ring. */ // Adding a specific 3.3 V hardcoded change, default is 1.6 V if given 0.0
     err = WD_AI_Trig_Config (adcCard,
                              WD_AI_TRGMOD_POST,
                              WD_AI_TRGSRC_ExtD,
                              trigPol,
-                             0, 0.0, 0, 0, 0,
+                             0, 2.4, 0, 0, 0, // It is the 6th value (float) which can be set to threshold, between 0 and 3.3V!??
                              (U32)reTrgCnt);
     if (err != NoError)
     {
@@ -2681,11 +2685,11 @@ int CVICALLBACK MasterDdsCB (int p, int c, int ev, void *cbd,
 
     if (ddsSweepActive)
     {
-        /* Active: swap to CW mode (stops DROver trigger cleanly) */
+        /* Active: swap to CW mode (stops DROver trigger cleanly) */ // If in CW, swap to Sweep mode here or as third case below!
         DdsStopCB (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,
                    EVENT_COMMIT, NULL, 0, 0);
     }
-    else
+    else //There should be a third case, potentially requiring a new tracker. If in CW mode, and already connected but not FMCW sweeping, start sweeping. 
     {
         /* Not active: full init/cal then start FMCW triggered sweep */
         SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_DDS_STATUS,
