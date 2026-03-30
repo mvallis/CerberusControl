@@ -11,6 +11,8 @@ cvibuild.*/
 *.dll
 *.lib
 
+
+
 # Radar data files 
 *.dat
 *.hdr
@@ -23,3 +25,5 @@ slprj/         # Simulink project folders
 # === AI/Agentic Workflow Specifics ===
 .claude/       # Local Claude Code session data
 mcp_config.json # Local MCP server configuration
+repomix-output.xml
+repomix.config.json

@@ -11,7 +11,7 @@
  *
  * Build:
  *   Add this .c, dds.c, and the .uir to your CVI project.
- *   Link:  visa32.lib
+ *   Link:  visa32.lib/visa64.lib
  *===========================================================================*/
 
 #include <windows.h>
@@ -38,14 +38,6 @@
 #define READ_BUF_LEN        256
 #define UIR_FILE            "DeviceControl_FullThreaded.uir"
 
-/* Provisional — replace when UIR buttons are added and header regenerated */
-#ifndef MASTER_TAB_MASTER_BTN_SHUTDOWN
-#define MASTER_TAB_MASTER_BTN_SHUTDOWN  30
-#endif
-#ifndef MASTER_TAB_MASTER_BTN_RESET_STAR
-#define MASTER_TAB_MASTER_BTN_RESET_STAR  31
-#endif
-
 /*---------------------------------------------------------------------------
  * Global Variables
  *---------------------------------------------------------------------------*/
@@ -71,6 +63,7 @@ static int ch1OutState = 0, ch2OutState = 0, ch3OutState = 0;
 /* ---- DDS state ---- */
 static int    ddsConnected      = 0;
 static int    ddsSweepActive    = 0;
+static int    ddsInitDone       = 0;       /* 1 after successful init/cal    */
 static double lastActualPeriod_us = 0.0;   /* remember last sweep period */
 
 
@@ -98,6 +91,10 @@ static void SetPSUDimmed        (int dimmed);
 
 /* ADC */
 static void ADC_Cleanup (void);
+static void ADC_UpdateTrigCountDim (void);
+static int  CVICALLBACK TrigModeRingCB (int panel, int control, int event,
+                                        void *callbackData, int eventData1,
+                                        int eventData2);
 
 /* Master setup (async: register → calibrate → re-register → configure) */
 static int  CVICALLBACK MasterSetupThread         (void *data);
@@ -193,6 +190,12 @@ int main (int argc, char *argv[])
     SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START,      ATTR_DIMMED, 1);
     SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,       ATTR_DIMMED, 1);
 
+    /* Trigger mode ring: install callback for interactive dim/undim of count,
+       then set initial dim state (POST → count dimmed). */
+    InstallCtrlCallback (adcTabHandle, ADC_TAB_ADC_RING_TRIG_MODE,
+                         TrigModeRingCB, NULL);
+    ADC_UpdateTrigCountDim ();
+
     ScanVISAResources ();
 
     DisplayPanel (mainPanel);
@@ -202,7 +205,7 @@ int main (int argc, char *argv[])
     ADC_Cleanup ();
     Relay_Disconnect ();
     PSU_Disconnect ();
-    if (ddsConnected) { deinit_dds (); ddsConnected = 0; }
+    if (ddsConnected) { deinit_dds (); ddsConnected = 0; ddsInitDone = 0; }
     if (defaultRM != VI_NULL) viClose (defaultRM);
 
     DiscardPanel (mainPanel);
@@ -639,6 +642,20 @@ static void DDS_UpdateTimingDisplay (void)
     SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_SAMPLES,  deadSamples);
     SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_MIN_PROG_DIV,  minProgDiv);
 
+    /* TX sweep bandwidth and centre frequency from DDS actual values.
+       Tx_GHz = (((DDS_MHz / 1000 + 7) * 3) - 14)                     */
+    {
+        double actStart, actStop, txStartGHz, txStopGHz, txBW, txCentre;
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_START, &actStart);
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_STOP,  &actStop);
+        txStartGHz = (((actStart / 1000.0 + 7.0) * 3.0) - 14.0);
+        txStopGHz  = (((actStop  / 1000.0 + 7.0) * 3.0) - 14.0);
+        txBW       = fabs (txStopGHz - txStartGHz);
+        txCentre   = (txStartGHz + txStopGHz) / 2.0;
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TX_BW,     txBW);
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TX_CENTRE, txCentre);
+    }
+
     /* Validation warnings */
     warnMsg[0] = '\0';
 
@@ -727,6 +744,7 @@ int CVICALLBACK DdsDisconnectCB (int p, int c, int ev, void *cbd, int e1, int e2
 	dds_powerdown(); // making sure off
     deinit_dds (); //ensure turned off then quit
     ddsConnected = 0;
+    ddsInitDone  = 0;
 
     SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Status: Disconnected");
     SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_CONNECT,    ATTR_DIMMED, 0);
@@ -754,6 +772,7 @@ int CVICALLBACK DdsInitCalCB (int p, int c, int ev, void *cbd, int e1, int e2)
     if (!ad9914_calibrate_dac ()) // calibrate
     { SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "DAC cal FAILED"); return 0; }
 
+    ddsInitDone = 1;
     SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Init & calibration OK");
     return 0;
 }
@@ -791,6 +810,13 @@ int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
         SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_START,  actCW);
         SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_STOP,   0.0);
         SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_PERIOD, 0.0);
+
+        /* CW mode: show TX frequency, BW = 0 */
+        {
+            double txCW = (((actCW / 1000.0 + 7.0) * 3.0) - 14.0);
+            SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TX_BW,     0.0);
+            SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TX_CENTRE, txCW);
+        }
     }
     else
     {
@@ -843,9 +869,14 @@ int CVICALLBACK DdsStartCB (int p, int c, int ev, void *cbd, int e1, int e2)
         lastActualPeriod_us = actPeriod;
         DDS_UpdateTimingDisplay ();
 
-        sprintf (msg, "%s sweep  (%.6f to %.6f MHz, %.3f us)",
-                 (chirpMode == 0) ? "Triggered" : "Free-run",
-                 actStart, actStop, actPeriod);
+        {
+            double txS = (((actStart / 1000.0 + 7.0) * 3.0) - 14.0);
+            double txE = (((actStop  / 1000.0 + 7.0) * 3.0) - 14.0);
+            sprintf (msg, "%s sweep  (%.6f-%.6f MHz, %.3f us) TX BW=%.3f GHz Fc=%.3f GHz",
+                     (chirpMode == 0) ? "Triggered" : "Free-run",
+                     actStart, actStop, actPeriod,
+                     fabs (txE - txS), (txS + txE) / 2.0);
+        }
         SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, msg);
     }
 
@@ -1005,9 +1036,34 @@ static int  CVICALLBACK AdcCalThread        (void *data);
 static void CVICALLBACK ADC_CalDoneDeferred (void *data);
 static double           ADC_RangeToVolts    (int rangeConst);
 static void             ADC_GenerateFilename(char *buf, int bufLen);
-static void             ADC_WriteSidecarHeader (const char *baseName, int mode);
+static void             ADC_WriteSidecarHeader (const char *baseName, int mode,
+                                                const char *context);
 static void             ADC_StopAcquisition (void);
 static int              ADC_StartCommon     (int mode, U32 reTrgCnt);
+
+/* Dim or undim the trigger-count control based on the selected trigger mode.
+   Ring: 0 = Post (count unused → dimmed), 1 = Delay (count = delay ticks → active).
+   Pre and Middle modes removed. */
+static void ADC_UpdateTrigCountDim (void)
+{
+    int trigModeIdx = 0;
+    int dimmed;
+
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TRIG_MODE, &trigModeIdx);
+    dimmed = (trigModeIdx == 0) ? 1 : 0;   /* 0 = POST → dim; 1 = DELAY → active */
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_NUM_TRIG_COUNT, ATTR_DIMMED, dimmed);
+}
+
+/* Callback installed on the trigger-mode ring so the count control
+   dims/undims interactively when the user changes the mode. */
+static int CVICALLBACK TrigModeRingCB (int panel, int control, int event,
+                                       void *callbackData, int eventData1,
+                                       int eventData2)
+{
+    if (event == EVENT_COMMIT)
+        ADC_UpdateTrigCountDim ();
+    return 0;
+}
 
 /* Unpin and release one DMA buffer allocated with GlobalAlloc+GlobalFix.
    Must be called before any free/release so the driver can unlock the pages. */
@@ -1067,8 +1123,10 @@ static void ADC_GenerateFilename (char *buf, int bufLen)
 {
     int month, day, year, hours, minutes, seconds;
 
-    /* Ensure output directory exists (no-op if already present) */
+    /* Ensure output directory exists (ignore -9 "already exists") */
+    SetBreakOnLibraryErrors (0);
     MakeDir ("Radar Data");
+    SetBreakOnLibraryErrors (1);
 
     GetSystemDate (&month, &day, &year);
     GetSystemTime (&hours, &minutes, &seconds);
@@ -1079,105 +1137,191 @@ static void ADC_GenerateFilename (char *buf, int bufLen)
 /*---------------------------------------------------------------------------
  * ADC_WriteSidecarHeader — write a .hdr text file alongside the .dat file
  *
- *   Captures all user-defined configuration at the moment recording starts:
- *   ADC settings, DDS sweep parameters, timing / divider chain, and the
- *   save mode used.  baseName is the path without any extension.
+ *   Comprehensive capture of the entire radar system state at the moment
+ *   recording starts: data format, ADC configuration, trigger setup, DDS
+ *   waveform, timing/divider chain, TX RF parameters, radar performance
+ *   metrics, FFT display settings, PSU readback, and system-level state.
+ *
+ *   baseName — path without extension (.hdr appended here)
+ *   mode     — SAVE_THREAD or SAVE_TOFILE
+ *   context  — descriptive string: "record-thread", "record-tofile",
+ *              "master-record", "synced-reset"
  *---------------------------------------------------------------------------*/
-static void ADC_WriteSidecarHeader (const char *baseName, int mode)
+static void ADC_WriteSidecarHeader (const char *baseName, int mode,
+                                    const char *context)
 {
-    char hdrPath[512];
-    FILE *hdr;
-    int  month, day, year, hours, minutes, seconds;
+    char   hdrPath[512];
+    FILE  *hdr;
+    int    month, day, year, hours, minutes, seconds;
 
-    /* --- ADC UI values --- */
+    /* ADC UI values */
     int    timebase, impedance, range, sampsPerTrig;
+    double voltRange;
 
-    /* --- DDS UI values --- */
+    /* DDS UI values */
     double clockMHz, startF, stopF, period, cwFreq;
     int    hmcDiv, progDiv, sampsPerChirp, chirpMode;
 
-    /* --- DDS actual / computed values --- */
+    /* DDS actual / computed */
     double actStart, actStop, actPeriod;
     double syncClkMHz, adcClkMHz, trigFreqHz, drctrlPeriod;
-    int    chirpSteps, deadSamples, minProgDiv;
-    double calcPeriod, deadTime;
+    int    deadSamples;
+    double deadTime;
+
+    /* TX radar */
+    double txBW, txCentre, txStartGHz, txStopGHz;
+
+    /* FFT display */
+    int    windowType, padFactor;
+
+    /* PSU readback */
+    double v1, i1, v2, i2;
+
+    /* Run note (256-char free-form text from master tab) */
+    char   runNote[257];
 
     snprintf (hdrPath, sizeof (hdrPath), "%s.hdr", baseName);
     hdr = fopen (hdrPath, "w");
     if (!hdr) return;
 
-    /* Timestamp */
+    /* ================================================================
+     *  [Timestamp]
+     * ================================================================ */
     GetSystemDate (&month, &day, &year);
     GetSystemTime (&hours, &minutes, &seconds);
     fprintf (hdr, "[Timestamp]\n");
-    fprintf (hdr, "Date = %04d-%02d-%02d\n", year, month, day);
-    fprintf (hdr, "Time = %02d:%02d:%02d\n\n", hours, minutes, seconds);
+    fprintf (hdr, "Date              = %04d-%02d-%02d\n", year, month, day);
+    fprintf (hdr, "Time              = %02d:%02d:%02d\n\n", hours, minutes, seconds);
 
-    /* Save mode */
-    fprintf (hdr, "[SaveMode]\n");
-    fprintf (hdr, "Mode = %s\n\n",
+    /* ================================================================
+     *  [Recording]  — how this file was created
+     * ================================================================ */
+    fprintf (hdr, "[Recording]\n");
+    fprintf (hdr, "SaveMode          = %s\n",
              (mode == SAVE_THREAD) ? "SAVE_THREAD" : "SAVE_TOFILE");
+    fprintf (hdr, "Context           = %s\n\n", context);
 
-    /* ---- ADC configuration ---- */
+    /* ================================================================
+     *  [Data_Format]  — everything needed to parse the binary .dat
+     * ================================================================ */
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_RANGE, &range);
+    if (range < 0 || range >= ADC_RANGE_TABLE_LEN) range = 0;
+    voltRange = ADC_RangeToVolts (adcRangeTable[range]);
+
+    fprintf (hdr, "[Data_Format]\n");
+    fprintf (hdr, "NumChannels       = %u\n", ADC_NUM_CH);
+    fprintf (hdr, "Interleave        = CH0,CH1,CH0,CH1,...\n");
+    fprintf (hdr, "DataType          = U16\n");
+    fprintf (hdr, "ByteOrder         = Little-Endian\n");
+    fprintf (hdr, "MidCodeOffset     = 32768\n");
+    fprintf (hdr, "VoltageRange_V    = %.3f\n", voltRange);
+    fprintf (hdr, "VoltsPerCount     = %.10e\n", voltRange / 32768.0);
+    fprintf (hdr, "HalfBufSamples    = %u\n", HALF_BUF_SAMPLES);
+    fprintf (hdr, "ScansPerHalf      = %u\n\n", SCANS_PER_HALF);
+
+    /* ================================================================
+     *  [ADC]  — digitiser configuration
+     * ================================================================ */
     GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TIMEBASE,     &timebase);
     GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_IMPEDANCE,    &impedance);
-    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_RANGE,        &range);
     GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SAMP_PER_TRIG, &sampsPerTrig);
 
-    if (range < 0 || range >= ADC_RANGE_TABLE_LEN)
-        range = ADC_RANGE_TABLE_LEN - 1;
-
     fprintf (hdr, "[ADC]\n");
-    fprintf (hdr, "NumChannels       = %u\n", ADC_NUM_CH);
-    fprintf (hdr, "HalfBufSamples    = %u\n", HALF_BUF_SAMPLES);
-    fprintf (hdr, "ScansPerHalf      = %u\n", SCANS_PER_HALF);
-    fprintf (hdr, "SampsPerTrig      = %d\n", sampsPerTrig);
-    fprintf (hdr, "RangeIndex        = %d\n", range);
-    fprintf (hdr, "VoltageRange_V    = %.3f\n", ADC_RangeToVolts (adcRangeTable[range]));
-    fprintf (hdr, "TimebaseIndex     = %d\n", timebase);
-    fprintf (hdr, "ImpedanceIndex    = %d\n", impedance);
-    fprintf (hdr, "DataType          = U16\n\n");
+    fprintf (hdr, "Card              = PCI-9846H\n");
+    fprintf (hdr, "Timebase          = %s\n",
+             (timebase == 0) ? "External" : "Internal");
+    fprintf (hdr, "Impedance         = %s\n",
+             impedance ? "50 ohm" : "1 Mohm");
+    fprintf (hdr, "SampsPerChirp_ADC = %d\n\n", sampsPerTrig);
 
-    /* ---- DDS configuration ---- */
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE,    &chirpMode);
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CLOCK_MHZ,      &clockMHz);
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_START_FREQ,     &startF);
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_STOP_FREQ,      &stopF);
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_PERIOD,         &period);
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CW_FREQ,        &cwFreq);
+    /* ================================================================
+     *  [ADC_Trigger]  — trigger configuration
+     * ================================================================ */
+    {
+        int   trigModeIdx, trigSrcI, trigPolI, trigCnt;
+        float trigLvl;
+
+        GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TRIG_SRC, &trigSrcI);
+        GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TRIG_POL, &trigPolI);
+
+        if (GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TRIG_MODE, &trigModeIdx) != 0)
+            trigModeIdx = 0;
+        if (GetCtrlVal (adcTabHandle, ADC_TAB_NUM_TRIG_LEVEL, &trigLvl) != 0)
+            trigLvl = 2.4;
+        if (GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_TRIG_COUNT, &trigCnt) != 0)
+            trigCnt = 0;
+
+        fprintf (hdr, "[ADC_Trigger]\n");
+        fprintf (hdr, "TriggerSource     = %s\n",
+                 (trigSrcI == 0) ? "External Digital" : "Software");
+        fprintf (hdr, "TriggerPolarity   = %s\n",
+                 (trigPolI == 1) ? "Negative Edge" : "Positive Edge");
+        fprintf (hdr, "TriggerMode       = %s\n",
+                 (trigModeIdx == 1) ? "Delay" : "Post");
+        fprintf (hdr, "TriggerThresh_V   = %.2f\n", trigLvl);
+        fprintf (hdr, "TriggerCount      = %d\n\n", trigCnt);
+    }
+
+    /* ================================================================
+     *  [DDS_Settings]  — requested waveform parameters
+     * ================================================================ */
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE, &chirpMode);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CLOCK_MHZ,   &clockMHz);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_START_FREQ,  &startF);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_STOP_FREQ,   &stopF);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_PERIOD,      &period);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CW_FREQ,     &cwFreq);
 
     fprintf (hdr, "[DDS_Settings]\n");
-    fprintf (hdr, "ChirpMode         = %d\n", chirpMode);
+    fprintf (hdr, "ChirpMode         = %s\n",
+             (chirpMode == 0) ? "Triggered (DRCTRL)" :
+             (chirpMode == 1) ? "Free-run"           : "CW");
     fprintf (hdr, "ClockMHz          = %.6f\n", clockMHz);
     fprintf (hdr, "StartFreqMHz      = %.6f\n", startF);
     fprintf (hdr, "StopFreqMHz       = %.6f\n", stopF);
     fprintf (hdr, "RequestedPeriod_us= %.6f\n", period);
     fprintf (hdr, "CW_FreqMHz        = %.6f\n\n", cwFreq);
 
-    /* ---- DDS actual values (set by last DdsStartCB) ---- */
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_START,      &actStart);
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_STOP,       &actStop);
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_PERIOD,     &actPeriod);
+    /* ================================================================
+     *  [DDS_Actual]  — what the hardware actually produced
+     * ================================================================ */
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_START,  &actStart);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_STOP,   &actStop);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_PERIOD, &actPeriod);
 
     fprintf (hdr, "[DDS_Actual]\n");
     fprintf (hdr, "ActualStartMHz    = %.6f\n", actStart);
     fprintf (hdr, "ActualStopMHz     = %.6f\n", actStop);
     fprintf (hdr, "ActualPeriod_us   = %.6f\n\n", actPeriod);
 
-    /* ---- Divider / timing chain ---- */
+    /* ================================================================
+     *  [TX_Radar]  — transmit-side RF parameters after multiplier chain
+     *   Tx_GHz = (((DDS_MHz / 1000 + 7) * 3) - 14)
+     * ================================================================ */
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TX_BW,     &txBW);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TX_CENTRE, &txCentre);
+    txStartGHz = (((actStart / 1000.0 + 7.0) * 3.0) - 14.0);
+    txStopGHz  = (((actStop  / 1000.0 + 7.0) * 3.0) - 14.0);
+
+    fprintf (hdr, "[TX_Radar]\n");
+    fprintf (hdr, "FreqMultiplier    = 3\n");
+    fprintf (hdr, "TX_StartFreq_GHz  = %.6f\n", txStartGHz);
+    fprintf (hdr, "TX_StopFreq_GHz   = %.6f\n", txStopGHz);
+    fprintf (hdr, "TX_Bandwidth_GHz  = %.6f\n", txBW);
+    fprintf (hdr, "TX_CentreFreq_GHz = %.6f\n\n", txCentre);
+
+    /* ================================================================
+     *  [Timing]  — divider chain and sweep timing
+     * ================================================================ */
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_HMC_DIV,        &hmcDiv);
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_PROG_DIV,       &progDiv);
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_SAMPS_PER_CHI,  &sampsPerChirp);
-
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_SYNC_CLK,       &syncClkMHz);
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_CLK,        &adcClkMHz);
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TRIG_FREQ,      &trigFreqHz);
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DRCTRL_PERIOD,  &drctrlPeriod);
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CHIRP_STEPS,    &chirpSteps);
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CALC_PERIOD,    &calcPeriod);
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_TIME,      &deadTime);
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_SAMPLES,   &deadSamples);
-    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_MIN_PROG_DIV,   &minProgDiv);
 
     fprintf (hdr, "[Timing]\n");
     fprintf (hdr, "HMC432_Divider    = %d\n", hmcDiv);
@@ -1185,13 +1329,82 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode)
     fprintf (hdr, "SampsPerChirp     = %d\n", sampsPerChirp);
     fprintf (hdr, "SyncClkMHz        = %.6f\n", syncClkMHz);
     fprintf (hdr, "ADC_ClkMHz        = %.6f\n", adcClkMHz);
-    fprintf (hdr, "TrigFreqHz        = %.3f\n", trigFreqHz);
+    fprintf (hdr, "PRF_Hz            = %.3f\n", trigFreqHz);
     fprintf (hdr, "DRCTRL_Period_us  = %.6f\n", drctrlPeriod);
-    fprintf (hdr, "ChirpSteps        = %d\n", chirpSteps);
-    fprintf (hdr, "CalcChirpPeriod_us= %.6f\n", calcPeriod);
     fprintf (hdr, "DeadTime_us       = %.6f\n", deadTime);
-    fprintf (hdr, "DeadSamples       = %d\n", deadSamples);
-    fprintf (hdr, "MinProgDivider    = %d\n", minProgDiv);
+    fprintf (hdr, "DeadSamples       = %d\n\n", deadSamples);
+
+    /* ================================================================
+     *  [Radar_Performance]  — derived metrics for post-processing
+     * ================================================================ */
+    {
+        double txBW_Hz       = txBW * 1e9;
+        double txCentre_Hz   = txCentre * 1e9;
+        double rangeRes      = (txBW_Hz > 0.0)
+                               ? SPEED_OF_LIGHT / (2.0 * txBW_Hz) : 0.0;
+        double maxRange      = (txBW_Hz > 0.0)
+                               ? SPEED_OF_LIGHT * (double)sampsPerChirp
+                                 / (2.0 * txBW_Hz * 2.0) : 0.0;
+        double maxVelocity   = (txCentre_Hz > 0.0 && trigFreqHz > 0.0)
+                               ? SPEED_OF_LIGHT * trigFreqHz
+                                 / (4.0 * txCentre_Hz) : 0.0;
+
+        fprintf (hdr, "[Radar_Performance]\n");
+        fprintf (hdr, "RangeResolution_m = %.4f\n", rangeRes);
+        fprintf (hdr, "MaxRange_m        = %.2f\n", maxRange);
+        fprintf (hdr, "MaxVelocity_mps   = %.4f\n\n", maxVelocity);
+    }
+
+    /* ================================================================
+     *  [FFT_Processing]  — live display settings at time of recording
+     * ================================================================ */
+    if (GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_WINDOW,  &windowType) != 0)
+        windowType = 1;
+    if (GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_ZEROPAD, &padFactor) != 0)
+        padFactor  = 0;
+
+    fprintf (hdr, "[FFT_Processing]\n");
+    fprintf (hdr, "WindowType        = %s\n",
+             (windowType == 0) ? "Rectangular" :
+             (windowType == 1) ? "Hann"        :
+             (windowType == 2) ? "Hamming"      :
+             (windowType == 3) ? "Blackman-Harris" :
+             (windowType == 5) ? "Blackman"     :
+             (windowType == 6) ? "Flat Top"     : "Unknown");
+    fprintf (hdr, "ZeroPadFactor     = %d\n\n", padFactor);
+
+    /* ================================================================
+     *  [System_State]  — snapshot of hardware state at recording start
+     * ================================================================ */
+    fprintf (hdr, "[System_State]\n");
+    fprintf (hdr, "DDS_Connected     = %s\n", ddsConnected  ? "Yes" : "No");
+    fprintf (hdr, "DDS_InitDone      = %s\n", ddsInitDone   ? "Yes" : "No");
+    fprintf (hdr, "DDS_SweepActive   = %s\n", ddsSweepActive ? "Yes" : "No");
+    fprintf (hdr, "TX_Relay          = %s\n", relay1State   ? "On"  : "Off");
+    fprintf (hdr, "Relay2            = %s\n\n", relay2State   ? "On"  : "Off");
+
+    /* ================================================================
+     *  [PSU_Readback]  — latest measured voltages and currents
+     * ================================================================ */
+    GetCtrlVal (psuTabHandle, PSU_TAB_PSU_NUM_CH1_VOLT_READ, &v1);
+    GetCtrlVal (psuTabHandle, PSU_TAB_PSU_NUM_CH1_CURR_READ, &i1);
+    GetCtrlVal (psuTabHandle, PSU_TAB_PSU_NUM_CH2_VOLT_READ, &v2);
+    GetCtrlVal (psuTabHandle, PSU_TAB_PSU_NUM_CH2_CURR_READ, &i2);
+
+    fprintf (hdr, "[PSU_Readback]\n");
+    fprintf (hdr, "CH1_Voltage_V     = %.3f\n", v1);
+    fprintf (hdr, "CH1_Current_A     = %.3f\n", i1);
+    fprintf (hdr, "CH2_Voltage_V     = %.3f\n", v2);
+    fprintf (hdr, "CH2_Current_A     = %.3f\n\n", i2);
+
+    /* ================================================================
+     *  [Run_Note]  — free-form user annotation (max 256 chars)
+     * ================================================================ */
+    runNote[0] = '\0';
+    GetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_TEXT_SAVE_NOTE, runNote);
+    runNote[256] = '\0';   /* hard guard against overrun */
+    fprintf (hdr, "[Run_Note]\n");
+    fprintf (hdr, "Note              = %s\n", runNote);
 
     fclose (hdr);
 }
@@ -1763,8 +1976,11 @@ static void CVICALLBACK ADC_StopDeferred (void *data)
 static int ADC_StartCommon (int mode, U32 reTrgCnt)
 {
     I16  err;
-    int  trigPolIdx;
-    U16  trigPol;
+    int  trigPolIdx, trigModeIdx;
+    U16  trigPol, trigMode;
+    float  trigLevel;
+    int    trigCount;
+    U32    postTrigScans = 0, preTrigScans = 0, trigDelayTicks = 0;
     char msg[256];
 
     if (!adcConfigured)
@@ -1785,6 +2001,47 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TRIG_POL, &trigPolIdx);
     trigPol = (trigPolIdx == 1) ? WD_AI_TrgNegative : WD_AI_TrgPositive;
 
+    /* Read trigger mode from UI ring.
+       Ring items: 0 = Post, 1 = Delay.
+       Pre and Middle modes removed — incompatible with double-buffer DMA streaming.
+       Defaults to POST if control read fails (UIR not yet updated). */
+    if (GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TRIG_MODE, &trigModeIdx) != 0)
+        trigModeIdx = 0;
+
+    switch (trigModeIdx)
+    {
+        /* case 1:  trigMode = WD_AI_TRGMOD_PRE;   break;  // REMOVED: incompatible with double-buffer */
+        /* case 2:  trigMode = WD_AI_TRGMOD_MIDL;  break;  // REMOVED: incompatible with double-buffer */
+        case 1:  trigMode = WD_AI_TRGMOD_DELAY; break;
+        default: trigMode = WD_AI_TRGMOD_POST;  break;
+    }
+
+    /* Read trigger level (0.0 – 3.3 V) from UI numeric.
+       Used as the external digital trigger threshold voltage.
+       Defaults to 2.4 V if control read fails. */
+    if (GetCtrlVal (adcTabHandle, ADC_TAB_NUM_TRIG_LEVEL, &trigLevel) != 0)
+        trigLevel = 2.4;
+    if (trigLevel < 0.0) trigLevel = 0.0;
+    if (trigLevel > 3.3) trigLevel = 3.3;
+
+    /* Read trigger count from UI numeric (used for Delay mode only).
+       Defaults to 0 if control read fails. */
+    if (GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_TRIG_COUNT, &trigCount) != 0)
+        trigCount = 0;
+    if (trigCount < 0) trigCount = 0;
+
+    /* Route the trigger count to the correct Trig_Config parameter based on mode.
+       POST:  postTrigScans/preTrigScans/trigDelayTicks all 0 (continuous double-buffer)
+       DELAY: trigDelayTicks = trigCount (in sampling clock ticks)
+       PRE and MIDL removed — single-buffer finite modes, incompatible with AsyncDblBuffer. */
+    switch (trigModeIdx)
+    {
+        /* case 1:  preTrigScans   = (U32)trigCount; break;  // PRE  — REMOVED */
+        /* case 2:  preTrigScans   = (U32)trigCount; break;  // MIDL — REMOVED */
+        case 1:  trigDelayTicks = (U32)trigCount; break;  /* DELAY */
+        default: break;                                   /* POST  */
+    }
+
     /* Clear any stale buffer registrations from a previous acquisition cycle
        or from WD_AD_Auto_Calibration_ALL (which may register internal buffers).
        This MUST come before Trig_Config — calling ContBufferReset after
@@ -1794,17 +2051,18 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     WD_AI_ContBufferReset (adcCard);
 
     /* Configure trigger (matches ADLINK reference sample order:
-       Trig_Config → AsyncDblBufferMode → ContBufferSetup → ContScanChannels).
-       POST trigger, external digital, polarity from UI ring. */ // Adding a specific 3.3 V hardcoded change, default is 1.6 V if given 0.0
+       Trig_Config → AsyncDblBufferMode → ContBufferSetup → ContScanChannels). */
     err = WD_AI_Trig_Config (adcCard,
-                             WD_AI_TRGMOD_POST,
+                             trigMode,
                              WD_AI_TRGSRC_ExtD,
                              trigPol,
-                             0, 2.4, 0, 0, 0, // It is the 6th value (float) which can be set to threshold, between 0 and 3.3V!??
+                             0, trigLevel,
+                             postTrigScans, preTrigScans, trigDelayTicks,
                              (U32)reTrgCnt);
     if (err != NoError)
     {
-        snprintf (msg, sizeof(msg), "ADC: Trig_Config failed (%d)", (int)err);
+        snprintf (msg, sizeof(msg), "ADC: Trig_Config failed (%d) mode=%d lvl=%.1f",
+                  (int)err, trigModeIdx, trigLevel);
         SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
         return -1;
     }
@@ -2267,7 +2525,7 @@ int CVICALLBACK AdcRecordCB (int p, int c, int ev, void *cbd, int e1, int e2)
         return 0;
     }
 
-    ADC_WriteSidecarHeader (recordPath, SAVE_THREAD);
+    ADC_WriteSidecarHeader (recordPath, SAVE_THREAD, "record-thread");
     SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Recording (thread)");
     return 0;
 }
@@ -2284,7 +2542,7 @@ int CVICALLBACK AdcSaveCB (int p, int c, int ev, void *cbd, int e1, int e2)
     if (ADC_StartCommon (SAVE_TOFILE, RETRIG_CNT_INF) < 0)
         return 0;
 
-    ADC_WriteSidecarHeader (recordPath, SAVE_TOFILE);
+    ADC_WriteSidecarHeader (recordPath, SAVE_TOFILE, "record-tofile");
     SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Recording (ToFile)");
     return 0;
 }
@@ -2508,8 +2766,22 @@ int CVICALLBACK MasterUpdateTimerCB (int p, int c, int ev, void *cbd,
 
     /* ---- Status messages ---- */
     {
-        char ddsMsg[128], adcMsg[128];
-        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, ddsMsg);
+        char ddsMsg[256], adcMsg[128];
+
+        /* When FMCW sweeping, show TX BW and centre frequency on master */
+        if (ddsSweepActive && lastActualPeriod_us > 0.0)
+        {
+            double txBW, txCentre;
+            GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TX_BW,     &txBW);
+            GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TX_CENTRE, &txCentre);
+            snprintf (ddsMsg, sizeof(ddsMsg),
+                      "FMCW: BW=%.3f GHz  Fc=%.3f GHz",
+                      txBW, txCentre);
+        }
+        else
+        {
+            GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, ddsMsg);
+        }
         SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_DDS_STATUS, ddsMsg);
         if (isAcquiring)
             snprintf (adcMsg, sizeof(adcMsg),
@@ -2685,17 +2957,27 @@ int CVICALLBACK MasterDdsCB (int p, int c, int ev, void *cbd,
 
     if (ddsSweepActive)
     {
-        /* Active: swap to CW mode (stops DROver trigger cleanly) */ // If in CW, swap to Sweep mode here or as third case below!
+        /* Active sweep: switch to CW mode (stops DROver trigger cleanly) */
         DdsStopCB (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,
                    EVENT_COMMIT, NULL, 0, 0);
     }
-    else //There should be a third case, potentially requiring a new tracker. If in CW mode, and already connected but not FMCW sweeping, start sweeping. 
+    else if (ddsInitDone)
     {
-        /* Not active: full init/cal then start FMCW triggered sweep */
+        /* Already init'd and in CW: just resume FMCW sweep (no re-init) */
+        SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE, 0);
+        DdsStartCB (ddsTabHandle, DDS_TAB_DDS_BTN_START,
+                    EVENT_COMMIT, NULL, 0, 0);
+
+        if (ddsSweepActive)
+            SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_DDS_STATUS,
+                        "DDS: FMCW resumed (no re-init)");
+    }
+    else
+    {
+        /* Not initialised: full init/cal then start FMCW triggered sweep */
         SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_DDS_STATUS,
                     "DDS: Init & calibrating...");
 
-        /* Full init/cal sequence: powerdown → reset → powerup → reset → DAC cal */
         dds_powerdown ();
         dds_reset ();
         if (!dds_powerup ())
@@ -2717,6 +2999,7 @@ int CVICALLBACK MasterDdsCB (int p, int c, int ev, void *cbd,
             return 0;
         }
 
+        ddsInitDone = 1;
         SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Init & calibration OK");
 
         /* Force triggered (DRCTRL) chirp mode and start FMCW sweep */
@@ -2971,7 +3254,7 @@ int CVICALLBACK MasterAcqRecordCB (int p, int c, int ev, void *cbd,
         return 0;
     }
 
-    ADC_WriteSidecarHeader (recordPath, SAVE_THREAD);
+    ADC_WriteSidecarHeader (recordPath, SAVE_THREAD, "master-record");
     SetCtrlVal (adcTabHandle,    ADC_TAB_ADC_MSG_STATUS,
                 "ADC: Recording (thread)");
     SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
@@ -3216,6 +3499,7 @@ static void CVICALLBACK SeqStep_DdsInitCW (void *data)
         return;
     }
 
+    ddsInitDone = 1;
     SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Init & calibration OK");
 
     /* Force triggered (DRCTRL) mode and start FMCW sweep directly */
@@ -3369,7 +3653,7 @@ int CVICALLBACK MasterSequenceCB (int p, int c, int ev, void *cbd,
 
     SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_SEQUENCE,
                       ATTR_DIMMED, 1);
-    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_SHUTDOWN,
+    SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_SHUTDOWN ,
                       ATTR_DIMMED, 1);
     SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_RESET_STAR,
                       ATTR_DIMMED, 1);
@@ -3485,6 +3769,7 @@ static void CVICALLBACK ShutStep_DDS (void *data)
     {
         deinit_dds ();
         ddsConnected = 0;
+        ddsInitDone  = 0;
     }
 
     /* Reset DDS tab to disconnected state */
@@ -3606,21 +3891,20 @@ int CVICALLBACK MasterShutdownCB (int p, int c, int ev, void *cbd,
  * MasterResetStartCB — synchronized DDS/ADC restart for INS time sync
  *
  *   Provides a clean time-zero by:
- *   1. Stopping any acquisition
- *   2. Stopping DDS chirp and switching to CW mode
- *   3. Configuring ADC (register if needed)
- *   4. Starting a saving acquisition (armed, waiting for trigger)
- *   5. Switching DDS to triggered sweep (triggers begin — recording starts)
+ *   1. Put DDS in CW mode (no re-init, just single-tone switch)
+ *   2. Stop any acquisition
+ *   3. Configure ADC (register if needed) + start SAVE_TOFILE acquisition
+ *   4. Wait 1 second
+ *   5. Switch DDS to triggered FMCW sweep (no re-init since already in CW)
  *
- *   0.5 s delay between each step.
  *   Runs synchronously on the UI thread.
  *---------------------------------------------------------------------------*/
 int CVICALLBACK MasterResetStartCB (int p, int c, int ev, void *cbd,
                                      int e1, int e2)
 {
-    int  cardNum;
-    I16  handle;
-    char datPath[512];
+    int    cardNum;
+    I16    handle;
+    double cwFreq, actCW;
 
     if (ev != EVENT_COMMIT) return 0;
 
@@ -3632,23 +3916,29 @@ int CVICALLBACK MasterResetStartCB (int p, int c, int ev, void *cbd,
     }
 
     SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                "Targeting Status: Reset & Start...");
+                "Targeting Status: Reset & Save...");
     ProcessSystemEvents ();
 
-    /* ---- Step 1: Stop any acquisition ---- */
-    if (isAcquiring)
-        ADC_StopAcquisition ();
-    Delay (0.5);
-
-    /* ---- Step 2: Stop DDS and switch to CW mode ---- */
+    /* ---- Step 1: Put DDS in CW mode (no re-init) ---- */
     if (ddsSweepActive)
     {
-        DdsStopCB (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,
-                   EVENT_COMMIT, NULL, 0, 0);
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CW_FREQ, &cwFreq);
+        if (ad9914_single_tone (cwFreq, &actCW) && dds_update ())
+        {
+            ddsSweepActive = 0;
+            SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_MSG_STATUS, "Stopped sweep -> CW");
+            SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_START, ATTR_DIMMED, 0);
+            SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_STOP,  ATTR_DIMMED, 1);
+        }
     }
-    Delay (0.5);
+    ProcessSystemEvents ();
 
-    /* ---- Step 3: Configure ADC (register if needed) ---- */
+    /* ---- Step 2: Stop any acquisition ---- */
+    if (isAcquiring)
+        ADC_StopAcquisition ();
+    ProcessSystemEvents ();
+
+    /* ---- Step 3: Configure ADC + start SAVE_TOFILE acquisition ---- */
     if (!adcRegistered)
     {
         GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_CARD_NUM, &cardNum);
@@ -3675,32 +3965,23 @@ int CVICALLBACK MasterResetStartCB (int p, int c, int ev, void *cbd,
                     "Targeting Status: ADC Configure failed");
         return 0;
     }
-    Delay (0.5);
 
-    /* ---- Step 4: Start saving acquisition — armed, waiting for trigger ---- */
     ADC_GenerateFilename (recordPath, sizeof (recordPath));
-    snprintf (datPath, sizeof (datPath), "%s.dat", recordPath);
-    recordFile = fopen (datPath, "wb");
-    if (!recordFile)
-    {
-        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                    "Targeting Status: File error");
-        return 0;
-    }
 
-    if (ADC_StartCommon (SAVE_THREAD, RETRIG_CNT_INF) < 0)
-    {
-        fclose (recordFile);
-        recordFile = NULL;
+    if (ADC_StartCommon (SAVE_TOFILE, RETRIG_CNT_INF) < 0)
         return 0;
-    }
 
-    ADC_WriteSidecarHeader (recordPath, SAVE_THREAD);
+    ADC_WriteSidecarHeader (recordPath, SAVE_TOFILE, "synced-reset");
     SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS,
-                "ADC: Armed — waiting for trigger...");
-    Delay (0.5);
+                "ADC: Armed (ToFile) — waiting for trigger...");
+    SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
+                "Targeting Status: Armed — waiting 1 s...");
+    ProcessSystemEvents ();
 
-    /* ---- Step 5: Switch DDS to triggered sweep ---- */
+    /* ---- Step 4: Wait 1 second ---- */
+    Delay (1.0);
+
+    /* ---- Step 5: Switch DDS to triggered FMCW sweep (no re-init) ---- */
     SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_RING_CHIRP_MODE, 0);
     DdsStartCB (ddsTabHandle, DDS_TAB_DDS_BTN_START,
                 EVENT_COMMIT, NULL, 0, 0);
@@ -3716,7 +3997,7 @@ int CVICALLBACK MasterResetStartCB (int p, int c, int ev, void *cbd,
     SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
                 "Targeting Status: Recording (synced)");
     SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS,
-                "ADC: Recording (synced reset)");
+                "ADC: Recording (synced reset - ToFile)");
 
     return 0;
 }

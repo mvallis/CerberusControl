@@ -21,25 +21,28 @@
 #define  ADC_TAB_ADC_RING_TRIG_POL        3       /* control type: ring, callback function: (none) */
 #define  ADC_TAB_ADC_RING_TRIG_SRC        4       /* control type: ring, callback function: (none) */
 #define  ADC_TAB_ADC_RING_TIMEBASE        5       /* control type: ring, callback function: (none) */
-#define  ADC_TAB_ADC_RING_IMPEDANCE       6       /* control type: ring, callback function: (none) */
-#define  ADC_TAB_ADC_RING_RANGE           7       /* control type: ring, callback function: (none) */
-#define  ADC_TAB_ADC_NUM_TRIGGERS         8       /* control type: numeric, callback function: (none) */
-#define  ADC_TAB_ADC_NUM_SAMP_PER_TRIG    9       /* control type: numeric, callback function: (none) */
-#define  ADC_TAB_ADC_BTN_RELEASE          10      /* control type: command, callback function: AdcReleaseCB */
-#define  ADC_TAB_ADC_BTN_STOP_ACQ         11      /* control type: command, callback function: AdcStopCB */
-#define  ADC_TAB_ADC_BTN_SINGLE           12      /* control type: command, callback function: AdcSingleShotCB */
-#define  ADC_TAB_ADC_BTN_START_ACQ        13      /* control type: command, callback function: AdcStartCB */
-#define  ADC_TAB_ADC_BTN_SAVE             14      /* control type: command, callback function: AdcSaveCB */
-#define  ADC_TAB_ADC_BTN_CONFIGURE        15      /* control type: command, callback function: AdcConfigureCB */
-#define  ADC_TAB_ADC_BTN_REGISTER         16      /* control type: command, callback function: AdcRegisterCB */
-#define  ADC_TAB_ADC_GRAPH_TIME           17      /* control type: graph, callback function: (none) */
-#define  ADC_TAB_ADC_GRAPH_FFT            18      /* control type: graph, callback function: (none) */
-#define  ADC_TAB_ADC_MSG_STATUS           19      /* control type: textMsg, callback function: (none) */
-#define  ADC_TAB_ADC_BTN_RECORD           20      /* control type: command, callback function: AdcRecordCB */
-#define  ADC_TAB_ADC_TIMER_POLL           21      /* control type: timer, callback function: AdcPollTimerCB */
-#define  ADC_TAB_ADC_BTN_CALIBRATE        22      /* control type: command, callback function: AdcCalibrateCB */
-#define  ADC_TAB_ADC_RING_ZEROPAD         23      /* control type: ring, callback function: (none) */
-#define  ADC_TAB_ADC_RING_WINDOW          24      /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_RING_TRIG_MODE       6       /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_RING_IMPEDANCE       7       /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_RING_RANGE           8       /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_NUM_TRIGGERS         9       /* control type: numeric, callback function: (none) */
+#define  ADC_TAB_ADC_NUM_TRIG_COUNT       10      /* control type: numeric, callback function: (none) */
+#define  ADC_TAB_NUM_TRIG_LEVEL           11      /* control type: numeric, callback function: (none) */
+#define  ADC_TAB_ADC_NUM_SAMP_PER_TRIG    12      /* control type: numeric, callback function: (none) */
+#define  ADC_TAB_ADC_BTN_RELEASE          13      /* control type: command, callback function: AdcReleaseCB */
+#define  ADC_TAB_ADC_BTN_STOP_ACQ         14      /* control type: command, callback function: AdcStopCB */
+#define  ADC_TAB_ADC_BTN_SINGLE           15      /* control type: command, callback function: AdcSingleShotCB */
+#define  ADC_TAB_ADC_BTN_START_ACQ        16      /* control type: command, callback function: AdcStartCB */
+#define  ADC_TAB_ADC_BTN_SAVE             17      /* control type: command, callback function: AdcSaveCB */
+#define  ADC_TAB_ADC_BTN_CONFIGURE        18      /* control type: command, callback function: AdcConfigureCB */
+#define  ADC_TAB_ADC_BTN_REGISTER         19      /* control type: command, callback function: AdcRegisterCB */
+#define  ADC_TAB_ADC_GRAPH_TIME           20      /* control type: graph, callback function: (none) */
+#define  ADC_TAB_ADC_GRAPH_FFT            21      /* control type: graph, callback function: (none) */
+#define  ADC_TAB_ADC_MSG_STATUS           22      /* control type: textMsg, callback function: (none) */
+#define  ADC_TAB_ADC_BTN_RECORD           23      /* control type: command, callback function: AdcRecordCB */
+#define  ADC_TAB_ADC_TIMER_POLL           24      /* control type: timer, callback function: AdcPollTimerCB */
+#define  ADC_TAB_ADC_BTN_CALIBRATE        25      /* control type: command, callback function: AdcCalibrateCB */
+#define  ADC_TAB_ADC_RING_ZEROPAD         26      /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_RING_WINDOW          27      /* control type: ring, callback function: (none) */
 
      /* tab page panel controls */
 #define  DDS_TAB_DDS_NUM_CLOCK_MHZ        2       /* control type: numeric, callback function: (none) */
@@ -105,7 +108,8 @@
 #define  MASTER_TAB_MASTER_TIMER_UPDATE   28      /* control type: timer, callback function: MasterUpdateTimerCB */
 #define  MASTER_TAB_MASTER_BTN_SEQUENCE   29      /* control type: command, callback function: MasterSequenceCB */
 #define  MASTER_TAB_MASTER_LED_SAVING     30      /* control type: LED, callback function: (none) */
-#define  MASTER_TAB_MASTER_TAB_MASTER_BTN 31      /* control type: command, callback function: MasterShutdownCB */
+#define  MASTER_TAB_MASTER_BTN_SHUTDOWN   31      /* control type: command, callback function: MasterShutdownCB */
+#define  MASTER_TAB_MASTER_TEXT_SAVE_NOTE 32      /* control type: string, callback function: (none) */
 
      /* tab page panel controls */
 #define  PSU_TAB_PSU_RING_RESOURCE        2       /* control type: ring, callback function: (none) */
