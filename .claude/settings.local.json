@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git check-ignore:*)"
+      "Bash(git check-ignore:*)",
+      "Bash(echo \"exit:$?\")"
     ]
   }
 }

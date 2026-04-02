@@ -1185,3 +1185,221 @@ PlotScaledIntensity (rdpTabHandle, RDP_TAB_GRAPH_RTI_LRX,
 
 6. **Colour maps** — BB24 uses custom `ColorMapEntry` arrays. CVI's `PlotScaledIntensity`
    accepts these directly. Provide 2-3 preset maps (Jet, Hot, Grayscale) selectable via ring.
+
+---
+---
+
+# Code Review — 2026-03-30
+
+**Branch:** `Release1`
+
+Full review of `DeviceControl_FullThreaded.c` (~4000 lines), `dds.h`, and
+`DeviceControl_FullThreaded.h`. Focus: instrument control quality, threading,
+data integrity, maintainability.
+
+---
+
+## Issues Found
+
+### 1. `SAVE_TOFILE` macro has an unterminated comment (BUG — trivial)
+
+**Location:** `DeviceControl_FullThreaded.c` line ~959
+
+```c
+#define SAVE_TOFILE  2   /* WD_AI_AsyncDblBufferToFile (driver-managed)
+// Define the Trig Digital threshold level here!?
+```
+
+The `/*` is never closed. Compiles only because `#define` ends at the physical line,
+so the dangling `/*` is part of the replacement text (which is just `2`) and is never
+substituted into code. Confusing to read.
+
+**Fix:** Close the comment on the same line:
+
+```c
+#define SAVE_TOFILE  2   /* WD_AI_AsyncDblBufferToFile (driver-managed) */
+```
+
+Move the TODO to its own line if still needed.
+
+---
+
+### 2. DDS init/cal sequence duplicated 3 times (MEDIUM — maintainability)
+
+**Locations:**
+- `DdsInitCalCB` (~line 766)
+- `MasterDdsCB` (~line 2981)
+- `SeqStep_DdsInitCW` (~line 3475)
+
+All three repeat the identical `powerdown → reset → powerup → reset → calibrate_dac`
+sequence with identical error handling. Any bug fix or ordering change must be
+applied in three places.
+
+**Fix:** Extract a single static helper:
+
+```c
+/* Returns 1 on success, 0 on failure. Sets ddsInitDone on success. */
+static int DDS_FullInitCal (void)
+{
+    dds_powerdown ();
+    dds_reset ();
+    if (!dds_powerup ())        return 0;
+    if (!dds_reset ())          return 0;
+    if (!ad9914_calibrate_dac ()) return 0;
+    ddsInitDone = 1;
+    return 1;
+}
+```
+
+Replace all three sites with calls to `DDS_FullInitCal()`, keeping only the
+site-specific status message and UI update around the call.
+
+---
+
+### 3. PSU readback blocks the UI thread (MEDIUM — responsiveness)
+
+**Location:** `PSU_ReadMeasurements` (line ~359), called from `ReadbackTimerCB`
+(line ~577) on the UI thread.
+
+Six sequential VISA query-response pairs, each with a 3000 ms timeout. If the PSU
+is slow or unresponsive, the UI freezes for up to 18 seconds. Correctly suspended
+during ADC acquisition (line ~2205), but still causes jank during idle use.
+
+**Fix:** Move readback to a background thread:
+
+1. Create a `PSU_ReadbackThread` that runs the 6 queries, stores results in
+   `static volatile double` globals.
+2. When done, post a `PSU_ReadbackDeferred` to update the UI numerics/meters.
+3. Change `ReadbackTimerCB` to schedule the thread (with a guard to prevent
+   overlapping reads) instead of calling `PSU_ReadMeasurements` directly.
+
+---
+
+### 4. `MasterResetStartCB` blocks the UI thread for 1+ seconds (LOW — UX)
+
+**Location:** `MasterResetStartCB` line ~3982 — `Delay(1.0)` on the UI thread.
+
+Every other long operation (calibration, startup sequence, shutdown) correctly uses
+a background thread. This one was left synchronous.
+
+**Fix:** Refactor to the same background-thread + deferred-call pattern used by
+`MasterSequenceThread`:
+
+1. Create `MasterResetThread` with the same step-by-step structure.
+2. Move the `Delay(1.0)` and DDS restart into the background thread.
+3. Post deferred calls for each UI update and for the final status.
+
+---
+
+### 5. `fwrite` return value ignored in `DiskSaveThread` (LOW — data integrity)
+
+**Location:** `DiskSaveThread` line ~1568
+
+```c
+fwrite (slotBuf, sizeof (U16), HALF_BUF_SAMPLES, recordFile);
+```
+
+A disk-full or I/O error silently produces a truncated recording with no user
+notification.
+
+**Fix:**
+
+```c
+size_t written = fwrite (slotBuf, sizeof (U16), HALF_BUF_SAMPLES, recordFile);
+if (written < HALF_BUF_SAMPLES)
+    diagSaveError++;
+```
+
+Add `static volatile U32 diagSaveError = 0;` to the diagnostic counters. Display
+it in `AdcPollTimerCB` and in the stop status message. Optionally post a deferred
+call to surface a warning immediately on first error.
+
+---
+
+### 6. `ADC_TAB_ADC_NUM_TRIGGERS` control is dead UI (LOW — clarity)
+
+**Location:** Header defines `ADC_TAB_ADC_NUM_TRIGGERS 9` (numeric). Never read
+anywhere in code. `reTrgCnt` is hardcoded to 1 in all call sites.
+
+**Fix (choose one):**
+
+- **Option A — Remove:** Delete the control from the UIR in the CVI editor.
+- **Option B — Wire up:** Read it into `reTrgCnt` in `ADC_StartCommon` so the
+  user can control re-trigger count from the UI.
+
+Recommendation: Option A unless multi-trigger acquisition is needed in future.
+
+---
+
+### 7. Relay/DDS auto-connect hardcodes COM port numbers (LOW — portability)
+
+**Locations:**
+- `MasterTxRelayCB` line ~2893: `FindResourceBySubstring("ASRL18")`
+- `MasterDdsCB` line ~2943: `FindResourceBySubstring("ASRL19")`
+- `SeqStep_ConnectRelayDds` lines ~3411, ~3445: same hardcoded strings
+
+If Windows reassigns COM numbers (USB hub change, driver reinstall), the master tab
+auto-connect silently fails. The per-device tab connect still works because the
+user manually selects the resource.
+
+**Fix:** Add two string controls (or `#define` constants) for the relay and DDS
+VISA substrings. Read them at auto-connect time. Alternatively, match by USB
+VID/PID instead of COM number.
+
+---
+
+### 8. Thread safety of shared globals is fragile (LOW — correctness)
+
+Multiple `volatile` globals (`isAcquiring`, `saveMode`, `plotBusy`, `plotScans`,
+all `diagXxx` counters) are accessed from different threads without locks or
+memory barriers. Works on x86/MSVC because aligned 32-bit reads/writes are
+atomic in practice, but:
+
+- `isAcquiring` is written by both the UI thread (`ADC_StopAcquisition`) and
+  the poll thread (on `fStop`). Actual synchronisation comes from
+  `CmtWaitForThreadPoolFunctionCompletion`, not from `volatile`.
+- `plotScans` is set before acquisition starts, never during. Safe by sequencing.
+
+**Fix (if desired):** Use CVI `CmtNewLock`/`CmtGetLock`/`CmtReleaseLock` for
+critical sections, or at minimum document the threading contract in comments.
+
+No immediate action needed — correct on the target platform today.
+
+---
+
+### 9. FFT dBm scaling comments are misleading (TRIVIAL — documentation)
+
+**Location:** `ADC_PlotDeferred` lines ~1700–1712
+
+The `+30` factor comment says "dBW → dBm" but the actual conversion is
+`dBV_peak → dBm into 50Ω`. Dangling TODO: `// account for bits for voltage like BB24?`
+
+**Fix:** Rewrite the comment to accurately describe the full chain:
+
+```
+Peak voltage → 20·log10(|X|)
+  − 20·log10(N/2)             FFT normalisation
+  + window coherent gain corr  from GetWinProperties()
+  − 3 dB                      peak → RMS
+  + 30 dB                     dBV → dBm (into 1 Ω)
+  − 10·log10(50)              correct for 50 Ω load
+  = dBm into 50 Ω
+```
+
+Remove or resolve the BB24 TODO.
+
+---
+
+## Priority Table
+
+| # | Issue | Effort | Impact | When |
+|---|-------|--------|--------|------|
+| 1 | Unterminated `SAVE_TOFILE` comment | Trivial | Low | Next edit |
+| 2 | Extract DDS init helper | Low | Medium | Next edit |
+| 5 | `fwrite` error checking | Low | Medium | Next edit |
+| 9 | FFT comment cleanup | Trivial | Low | Next edit |
+| 6 | Remove dead `ADC_NUM_TRIGGERS` control | Low | Low | Next UIR edit |
+| 3 | PSU readback to background thread | Medium | High | Next refactor |
+| 4 | `MasterResetStartCB` to background thread | Low | Medium | Next refactor |
+| 7 | Configurable COM port aliases | Medium | Medium | Next refactor |
+| 8 | Thread safety docs/locks | Low | Low | When changing threading |
