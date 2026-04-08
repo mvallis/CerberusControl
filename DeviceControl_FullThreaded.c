@@ -586,17 +586,20 @@ int CVICALLBACK ReadbackTimerCB (int p,int c,int ev,void*cbd,int e1,int e2)
  *    Trigger  = ADC_CLK / progDiv        (programmable divider)
  *             = SYNC_CLK / (hmcDiv x 2 x progDiv)
  *
- *  Chirp duration  = sampsPerChirp x hmcDiv x 2   SYNC_CLK cycles
- *  DRCTRL period   = hmcDiv x 2 x progDiv         SYNC_CLK cycles
- *  Dead time       = hmcDiv x 2 x (progDiv - sampsPerChirp)  SYNC_CLK cycles
- *  Dead samples    = progDiv - sampsPerChirp       ADC samples
- *  Min progDiv     = sampsPerChirp + 1
+ *  ADC sampling rate = ADC_CLK / scanInterval   (ContScan ScanInterval)
+ *
+ *  Chirp duration  = sampsPerChirp x scanInterval x hmcDiv x 2   SYNC_CLK cycles
+ *  DRCTRL period   = hmcDiv x 2 x progDiv                       SYNC_CLK cycles
+ *  Dead time       = DRCTRL period - actual sweep period
+ *  Dead samples    = progDiv / scanInterval - sampsPerChirp      ADC samples
+ *  Min progDiv     = sampsPerChirp x scanInterval + 1
  *===========================================================================*/
 static void DDS_UpdateTimingDisplay (void)
 {
     double clockMHz, syncClkMHz, syncClkPeriod_us;
-    double adcClkMHz, trigFreqHz, drctrlPeriod_us, deadTime_us, calcPeriod_us;
-    int    hmcDiv, progDiv, sampsPerChirp;
+    double adcClkMHz, adcSampRateMHz, trigFreqHz;
+    double drctrlPeriod_us, deadTime_us, calcPeriod_us;
+    int    hmcDiv, progDiv, sampsPerChirp, scanInterval;
     int    adcClkDivTotal, chirpSteps, drctrlSteps, minProgDiv, deadSamples;
     char   warnMsg[256];
 
@@ -604,10 +607,12 @@ static void DDS_UpdateTimingDisplay (void)
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_HMC_DIV,       &hmcDiv);
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_PROG_DIV,      &progDiv);
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_SAMPS_PER_CHI, &sampsPerChirp);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SCAN_INTERVAL, &scanInterval);
 
-    if (hmcDiv < 2)         hmcDiv = 2;
-    if (progDiv < 1)        progDiv = 1;
-    if (sampsPerChirp < 1)  sampsPerChirp = 1;
+    if (hmcDiv < 2)          hmcDiv = 2;
+    if (progDiv < 1)         progDiv = 1;
+    if (sampsPerChirp < 1)   sampsPerChirp = 1;
+    if (scanInterval < 1)    scanInterval = 1;
 
     /* SYNC_CLK = DDS_CLOCK / 24 */
     syncClkMHz       = clockMHz / 24.0;
@@ -617,8 +622,12 @@ static void DDS_UpdateTimingDisplay (void)
     adcClkDivTotal = hmcDiv * 2;
     adcClkMHz      = syncClkMHz / (double)adcClkDivTotal;
 
-    /* Chirp: exactly sampsPerChirp ADC samples = sampsPerChirp x adcClkDivTotal SYNC_CLK cycles */
-    chirpSteps    = sampsPerChirp * adcClkDivTotal;
+    /* ADC sampling rate = ADC_CLK / scanInterval */
+    adcSampRateMHz = adcClkMHz / (double)scanInterval;
+
+    /* Chirp: sampsPerChirp ADC samples, each taking scanInterval ADC_CLK cycles
+       = sampsPerChirp x scanInterval x adcClkDivTotal SYNC_CLK cycles */
+    chirpSteps    = sampsPerChirp * scanInterval * adcClkDivTotal;
     calcPeriod_us = (double)chirpSteps * syncClkPeriod_us;
 
     /* DRCTRL trigger = ADC_CLK / progDiv */
@@ -628,19 +637,22 @@ static void DDS_UpdateTimingDisplay (void)
 
     /* Dead time */
     deadTime_us = drctrlPeriod_us - lastActualPeriod_us;
-    deadSamples = progDiv - sampsPerChirp;
-    minProgDiv  = sampsPerChirp + 1;
+    deadSamples = progDiv / scanInterval - sampsPerChirp;
+    minProgDiv  = sampsPerChirp * scanInterval + 1;
 
     /* Update indicators */
-    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_SYNC_CLK,      syncClkMHz);
-    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_CLK,       adcClkMHz);
-    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TRIG_FREQ,     trigFreqHz);
-    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DRCTRL_PERIOD, drctrlPeriod_us);
-    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CHIRP_STEPS,   chirpSteps);
-    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CALC_PERIOD,   calcPeriod_us);
-    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_TIME,     deadTime_us);
-    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_SAMPLES,  deadSamples);
-    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_MIN_PROG_DIV,  minProgDiv);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_SYNC_CLK,       syncClkMHz);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_CLK,        adcClkMHz);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_TRIG_FREQ,      trigFreqHz);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DRCTRL_PERIOD,  drctrlPeriod_us);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CHIRP_STEPS,    chirpSteps);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CALC_PERIOD,    calcPeriod_us);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_TIME,      deadTime_us);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_SAMPLES,   deadSamples);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_MIN_PROG_DIV,   minProgDiv);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_FIXED_DIV2,     2);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_SCAN_INTERVAL,  scanInterval);
+    SetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_SAMP_RATE,  adcSampRateMHz);
 
     /* TX sweep bandwidth and centre frequency from DDS actual values.
        Tx_GHz = (((DDS_MHz / 1000 + 7) * 3) - 14)                     */
@@ -659,11 +671,11 @@ static void DDS_UpdateTimingDisplay (void)
     /* Validation warnings */
     warnMsg[0] = '\0';
 
-    if (progDiv <= sampsPerChirp)
+    if (progDiv <= sampsPerChirp * scanInterval)
     {
         sprintf (warnMsg, "WARNING: Prog divider %d too small! "
-                 "Need > %d samples/chirp. No dead time!",
-                 progDiv, sampsPerChirp);
+                 "Need > %d (samples x scanInterval). Min = %d.",
+                 progDiv, sampsPerChirp * scanInterval, minProgDiv);
     }
     else if (deadTime_us < 0.0 && lastActualPeriod_us > 0.0)
     {
@@ -1155,8 +1167,8 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode,
     int    month, day, year, hours, minutes, seconds;
 
     /* ADC UI values */
-    int    timebase, impedance, range, sampsPerTrig;
-    double voltRange;
+    int    timebase, impedance, range, sampsPerTrig, scanInterval;
+    double voltRange, adcSampRateMHz;
 
     /* DDS UI values */
     double clockMHz, startF, stopF, period, cwFreq;
@@ -1165,8 +1177,8 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode,
     /* DDS actual / computed */
     double actStart, actStop, actPeriod;
     double syncClkMHz, adcClkMHz, trigFreqHz, drctrlPeriod;
-    int    deadSamples;
-    double deadTime;
+    int    deadSamples, chirpSteps, minProgDiv;
+    double deadTime, calcPeriod;
 
     /* TX radar */
     double txBW, txCentre, txStartGHz, txStopGHz;
@@ -1225,6 +1237,8 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode,
     GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TIMEBASE,     &timebase);
     GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_IMPEDANCE,    &impedance);
     GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SAMP_PER_TRIG, &sampsPerTrig);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SCAN_INTERVAL, &scanInterval);
+    if (scanInterval < 1) scanInterval = 1;
 
     fprintf (hdr, "[ADC]\n");
     fprintf (hdr, "Card              = PCI-9846H\n");
@@ -1232,7 +1246,8 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode,
              (timebase == 0) ? "External" : "Internal");
     fprintf (hdr, "Impedance         = %s\n",
              impedance ? "50 ohm" : "1 Mohm");
-    fprintf (hdr, "SampsPerChirp_ADC = %d\n\n", sampsPerTrig);
+    fprintf (hdr, "SampsPerChirp_ADC = %d\n", sampsPerTrig);
+    fprintf (hdr, "ScanInterval      = %d\n\n", scanInterval);
 
     /* ================================================================
      *  [ADC_Trigger]  — trigger configuration
@@ -1322,17 +1337,28 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode,
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DRCTRL_PERIOD,  &drctrlPeriod);
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_TIME,      &deadTime);
     GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_DEAD_SAMPLES,   &deadSamples);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CHIRP_STEPS,    &chirpSteps);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_CALC_PERIOD,    &calcPeriod);
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_MIN_PROG_DIV,   &minProgDiv);
+
+    adcSampRateMHz = (scanInterval > 0) ? adcClkMHz / (double)scanInterval : adcClkMHz;
 
     fprintf (hdr, "[Timing]\n");
     fprintf (hdr, "HMC432_Divider    = %d\n", hmcDiv);
+    fprintf (hdr, "FixedDiv2         = 2\n");
     fprintf (hdr, "ProgDivider       = %d\n", progDiv);
+    fprintf (hdr, "ScanInterval      = %d\n", scanInterval);
     fprintf (hdr, "SampsPerChirp     = %d\n", sampsPerChirp);
     fprintf (hdr, "SyncClkMHz        = %.6f\n", syncClkMHz);
     fprintf (hdr, "ADC_ClkMHz        = %.6f\n", adcClkMHz);
+    fprintf (hdr, "ADC_SampRateMHz   = %.6f\n", adcSampRateMHz);
     fprintf (hdr, "PRF_Hz            = %.3f\n", trigFreqHz);
     fprintf (hdr, "DRCTRL_Period_us  = %.6f\n", drctrlPeriod);
     fprintf (hdr, "DeadTime_us       = %.6f\n", deadTime);
-    fprintf (hdr, "DeadSamples       = %d\n\n", deadSamples);
+    fprintf (hdr, "DeadSamples       = %d\n", deadSamples);
+    fprintf (hdr, "ChirpSteps        = %d\n", chirpSteps);
+    fprintf (hdr, "CalcChirpPd_us    = %.6f\n", calcPeriod);
+    fprintf (hdr, "MinProgDivider    = %d\n\n", minProgDiv);
 
     /* ================================================================
      *  [Radar_Performance]  — derived metrics for post-processing
@@ -1642,10 +1668,10 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
     {
         int    ph;
         double yLimit = adcVoltScale * 1.1;
-        double adcClk, timePerSample_us;
+        double adcSampRate, timePerSample_us;
 
-        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_CLK, &adcClk);
-        timePerSample_us = (adcClk > 0.0) ? 1.0 / adcClk : 1.0;   /* us */
+        GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_SAMP_RATE, &adcSampRate);
+        timePerSample_us = (adcSampRate > 0.0) ? 1.0 / adcSampRate : 1.0;  /* us */
 
         DeleteGraphPlot (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME, -1, VAL_DELAYED_DRAW);
         SetAxisScalingMode (adcTabHandle, ADC_TAB_ADC_GRAPH_TIME,
@@ -1750,16 +1776,16 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
            f_s                = adcClkMHz × 1e6 (Hz)                          */
         {
             int    ph;
-            double adcClk, actStart, actStop;
+            double adcSampRate, actStart, actStop;
             double fs_Hz, txBW_Hz, rangePerBin, freqPerBin_kHz;
             U32    peak0 = 1, peak1 = 1;
             char   lgText0[64], lgText1[64];
 
-            GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_CLK,   &adcClk);
-            GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_START, &actStart);
-            GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_STOP,  &actStop);
+            GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_SAMP_RATE, &adcSampRate);
+            GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_START,     &actStart);
+            GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ACT_STOP,      &actStop);
 
-            fs_Hz   = adcClk * 1e6;
+            fs_Hz   = adcSampRate * 1e6;
             txBW_Hz = FREQ_MULTIPLIER * fabs (actStop - actStart) * 1e6;
 
             freqPerBin_kHz = (fs_Hz > 0.0)
@@ -1980,6 +2006,7 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     U16  trigPol, trigMode;
     float  trigLevel;
     int    trigCount;
+    int    scanInterval;
     U32    postTrigScans = 0, preTrigScans = 0, trigDelayTicks = 0;
     char msg[256];
 
@@ -2114,8 +2141,13 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     diagSaveWritten = diagSaveDropped = diagPlotPosted = diagPlotDone = diagDmaOverrun = 0;
     plotBusy = 0;
 
+    /* Read ScanInterval from ADC tab (1..16777215) */
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SCAN_INTERVAL, &scanInterval);
+    if (scanInterval < 1) scanInterval = 1;
+
     /* Arm hardware — pass secondBufId (last registered buffer) to match
-       ADLINK double-buffer reference samples. */
+       ADLINK double-buffer reference samples.
+       ScanIntrv & SampIntrv both set to scanInterval (see Blunderbuss ref). */
     if (mode == SAVE_TOFILE)
     {
         err = WD_AI_ContScanChannelsToFile (adcCard,
@@ -2123,7 +2155,7 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
                                             secondBufId,
                                             (U8 *)recordPath,
                                             SCANS_PER_HALF,
-                                            1, 1,
+                                            (U32)scanInterval, (U32)scanInterval,
                                             ASYNCH_OP);
     }
     else
@@ -2132,7 +2164,7 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
                                       (U16)(ADC_NUM_CH - 1),
                                       secondBufId,
                                       SCANS_PER_HALF,
-                                      1, 1,
+                                      (U32)scanInterval, (U32)scanInterval,
                                       ASYNCH_OP);
     }
     if (err != NoError)
