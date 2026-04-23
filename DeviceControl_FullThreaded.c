@@ -183,6 +183,7 @@ int main (int argc, char *argv[])
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SINGLE,    ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REALIGN,   ATTR_DIMMED, 1);
 
     /* DDS tab: all action buttons dimmed until connected */
     SetCtrlAttribute (ddsTabHandle, DDS_TAB_DDS_BTN_DISCONNECT, ATTR_DIMMED, 1);
@@ -966,6 +967,12 @@ int CVICALLBACK DdsDivRatioCB (int p, int c, int ev, void *cbd, int e1, int e2)
                                            this value is correct for all acquisition modes.       */
 #define RETRIG_CNT_ONE      1U          /* same value — kept separate for code clarity           */
 
+/* Max hold and trigger alignment constants */
+#define MAX_HOLD_RANGE_MIN_M  1.9       /* minimum range (m) for max hold consideration          */
+#define ALIGN_CHIRPS_MAX      32        /* CRIs averaged in fine alignment search                */
+#define ALIGN_FINE_RADIUS     16        /* ±samples searched around coarse peak in fine step     */
+#define ALIGN_CRI_MAX         131072U   /* max CRI scans (= SCANS_PER_HALF/4, guarantees >=4 CRIs) */
+
 #define SAVE_NONE    0
 #define SAVE_THREAD  1                  /* user-space TSQ → fwrite thread            */
 #define SAVE_TOFILE  2                  /* WD_AI_AsyncDblBufferToFile (driver-managed)
@@ -1002,7 +1009,24 @@ static U16  *dmaBuffer2    = NULL;
 static U16   firstBufId    = 0;
 static U16   secondBufId   = 0;
 
-// Set up trigger alignment from here... make sure to prototype function etc.!
+/* Max hold state — reset to invalid on each acquisition start */
+static double        maxHoldRange_m  = 0.0;
+static double        maxHoldDbm      = -999.0;
+static int           maxHoldValid    = 0;
+
+/* Last per-frame peak (both channels) — updated each plot cycle, appended to sidecar on stop */
+static double        lastPeak0Range_m = 0.0;
+static double        lastPeak0Dbm     = -999.0;
+static double        lastPeak1Range_m = 0.0;
+static double        lastPeak1Dbm     = -999.0;
+
+/* Trigger alignment state */
+static int           chirpSampleOffset = 0;    /* scan offset applied to plotBuffer copy  */
+static volatile int  alignRequested    = 0;    /* set by button, cleared by poll thread   */
+static volatile int  alignBufReady     = 0;    /* set by poll thread, cleared by deferred */
+static U16           alignRawBuf[HALF_BUF_SAMPLES]; /* raw half-buffer copy for alignment */
+static unsigned int  alignCriScans     = 0;    /* full CRI length in scans (progDiv/scanInterval) */
+static unsigned int  alignChirpScans   = 0;    /* SampsPerChirp at time of request        */
 
 static volatile int    isAcquiring = 0;
 static int             saveMode    = SAVE_NONE;
@@ -1048,6 +1072,7 @@ static void             ADC_ApplyWindow     (double *data, U32 n, int winType);
 static PFFTTable        ADC_GetFFTTable     (U32 n);
 static int              ADC_EnsureFFTBufs   (U32 n);
 static void CVICALLBACK ADC_PlotDeferred    (void *data);
+static void CVICALLBACK ADC_AlignDeferred   (void *data);
 static void CVICALLBACK ADC_StopDeferred    (void *data);
 static int  CVICALLBACK AdcCalThread        (void *data);
 static void CVICALLBACK ADC_CalDoneDeferred (void *data);
@@ -1055,6 +1080,7 @@ static double           ADC_RangeToVolts    (int rangeConst);
 static void             ADC_GenerateFilename(char *buf, int bufLen);
 static void             ADC_WriteSidecarHeader (const char *baseName, int mode,
                                                 const char *context);
+static void             ADC_AppendSidecarMetrics (const char *baseName);
 static void             ADC_StopAcquisition (void);
 static int              ADC_StartCommon     (int mode, U32 reTrgCnt);
 
@@ -1366,7 +1392,9 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode,
     fprintf (hdr, "DeadSamples       = %d\n", deadSamples);
     fprintf (hdr, "ChirpSteps        = %d\n", chirpSteps);
     fprintf (hdr, "CalcChirpPd_us    = %.6f\n", calcPeriod);
-    fprintf (hdr, "MinProgDivider    = %d\n\n", minProgDiv);
+    fprintf (hdr, "MinProgDivider    = %d\n", minProgDiv);
+    fprintf (hdr, "ScansPerChirp     = %d\n\n",
+             (scanInterval > 0) ? progDiv / scanInterval : 0);
 
     /* ================================================================
      *  [Radar_Performance]  — derived metrics for post-processing
@@ -1557,11 +1585,22 @@ static int CVICALLBACK HardwarePollThread (void *data)
             /* Plot (lower priority — skip if previous plot not yet consumed) */
             if (!plotBusy && plotScans > 0)
             {
-                U32 scans = (plotScans > PLOT_SCANS_MAX) ? PLOT_SCANS_MAX : plotScans;
-                memcpy (plotBuffer, src, scans * ADC_NUM_CH * sizeof (U16));
+                U32 scans  = (plotScans > PLOT_SCANS_MAX) ? PLOT_SCANS_MAX : plotScans;
+                U32 offset = (U32)chirpSampleOffset;
+                if (offset + scans > SCANS_PER_HALF) offset = 0;   /* clamp if stale */
+                memcpy (plotBuffer, src + offset * ADC_NUM_CH, scans * ADC_NUM_CH * sizeof (U16));
                 plotBusy = 1;
                 diagPlotPosted++;
                 PostDeferredCall ((DeferredCallbackPtr)ADC_PlotDeferred, NULL);
+            }
+
+            /* Alignment capture — one-shot, triggered by Re-align button */
+            if (alignRequested && !alignBufReady)
+            {
+                memcpy (alignRawBuf, src, HALF_BUF_SAMPLES * sizeof (U16));
+                alignBufReady  = 1;
+                alignRequested = 0;
+                PostDeferredCall ((DeferredCallbackPtr)ADC_AlignDeferred, NULL);
             }
 
             /* Re-arm hardware for next half */
@@ -1786,7 +1825,7 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
             int    ph;
             double adcSampRate, actStart, actStop;
             double fs_Hz, txBW_Hz, rangePerBin, freqPerBin_kHz;
-            U32    peak0 = 1, peak1 = 1;
+            U32    peak0 = 1, peak1 = 1, minBin;
             char   lgText0[64], lgText1[64];
 
             GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_ADC_SAMP_RATE, &adcSampRate);
@@ -1827,10 +1866,17 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
             SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT,
                               ATTR_XNAME, "Beat Freq (kHz)");
 
-            /* ---- Find peak bin per channel (skip DC at bin 0) ---- */
+            /* ---- Minimum range bin — same threshold applied to peak finder and max hold.
+                   Accounts for TX bandwidth and zero-padding via rangePerBin. ---- */
+            minBin = (rangePerBin > 0.0)
+                     ? (U32)(MAX_HOLD_RANGE_MIN_M / rangePerBin) + 1U : 2U;
+            if (minBin < 2U) minBin = 2U;
+
+            /* ---- Find peak bin per channel (ignore close-range / DC bins) ---- */
+            peak0 = minBin; peak1 = minBin;
             {
                 U32 k;
-                for (k = 2; k < halfPadN; k++)
+                for (k = minBin; k < halfPadN; k++)
                 {
                     if (fftMag0[k] > fftMag0[peak0]) peak0 = k;
                     if (fftMag1[k] > fftMag1[peak1]) peak1 = k;
@@ -1840,6 +1886,43 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
                       (double)peak0 * rangePerBin, fftMag0[peak0]);
             snprintf (lgText1, sizeof(lgText1), "URX  %.2fm  %.2fdBm",
                       (double)peak1 * rangePerBin, fftMag1[peak1]);
+
+            /* Persist last-seen peak values for sidecar append on stop */
+            lastPeak0Range_m = (double)peak0 * rangePerBin;
+            lastPeak0Dbm     = fftMag0[peak0];
+            lastPeak1Range_m = (double)peak1 * rangePerBin;
+            lastPeak1Dbm     = fftMag1[peak1];
+
+            /* ---- Max hold: highest peak above MAX_HOLD_RANGE_MIN_M, both channels ---- */
+            if (rangePerBin > 0.0)
+            {
+                U32    k;
+                double bestMag = -1e38, bestRange = 0.0;
+
+                for (k = minBin; k < halfPadN; k++)
+                {
+                    if (fftMag0[k] > bestMag)
+                    {
+                        bestMag   = fftMag0[k];
+                        bestRange = (double)k * rangePerBin;
+                    }
+                    if (fftMag1[k] > bestMag)
+                    {
+                        bestMag   = fftMag1[k];
+                        bestRange = (double)k * rangePerBin;
+                    }
+                }
+
+                if (!maxHoldValid || bestMag > maxHoldDbm)
+                {
+                    maxHoldDbm    = bestMag;
+                    maxHoldRange_m = bestRange;
+                    maxHoldValid  = 1;
+                }
+
+                SetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_MAXHOLD_RNG, maxHoldRange_m);
+                SetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_MAXHOLD_DBM, maxHoldDbm);
+            }
 
             /* Plot against bottom (range) axis */
             SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_GRAPH_FFT,
@@ -1901,11 +1984,196 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
             PlotPoint (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT,
                        (double)peak1, fftMag1[peak1],
                        VAL_SOLID_DIAMOND, VAL_BLUE);
+
+            /* ---- Cursor 1 readout on master FFT graph ----
+               GetGraphCursor returns x in data coordinates (bin index, not metres).
+               Multiply by rangePerBin to recover range.  Clamp to valid array range. */
+            {
+                double  crsX, crsY;
+                U32     crsBin;
+                char    crsText[80];
+
+                GetGraphCursor (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT,
+                                1, &crsX, &crsY);
+                crsBin = (crsX >= 0.0) ? (U32)(crsX + 0.5) : 0U;
+                if (crsBin >= halfPadN) crsBin = halfPadN - 1U;
+
+                snprintf (crsText, sizeof(crsText),
+                          "Cursor: %.2f m  LRX %.1f dBm  URX %.1f dBm",
+                          (double)crsBin * rangePerBin,
+                          fftMag0[crsBin], fftMag1[crsBin]);
+                SetCtrlVal (masterTabHandle, MASTER_TAB_GRAPH_LABEL, crsText);
+            }
         }
     }
 
     diagPlotDone++;
     plotBusy = 0;
+}
+
+/*---------------------------------------------------------------------------
+ * ADC_AlignDeferred — runs on UI thread after poll thread fills alignRawBuf.
+ *
+ *   Coarse step: builds mean power profile at each sample position within the
+ *   CRI using coherent averaging across ALIGN_CHIRPS_MAX CRIs, then applies a
+ *   sliding window sum of width chirpScans to find the phase sCoarse where
+ *   the chirp window captures the most energy.
+ *
+ *   Fine step: for each candidate offset within ±ALIGN_FINE_RADIUS of sCoarse,
+ *   coherently averages the chirp waveform across CRIs, applies a Hann window,
+ *   computes an FFT, and selects the offset that yields the highest spectral
+ *   peak.  This maximises the beat-frequency coherence and handles arbitrary
+ *   chirp:dead duty cycles.
+ *
+ *   Result is stored in chirpSampleOffset (scans from half-buffer start) and
+ *   applied to future plotBuffer copies by HardwarePollThread.
+ *---------------------------------------------------------------------------*/
+static void CVICALLBACK ADC_AlignDeferred (void *data)
+{
+    static double    powerProfile[ALIGN_CRI_MAX];   /* mean power per CRI phase  */
+    unsigned int     criScans, chirpScans, nCris, m, s, i;
+    unsigned int     sCoarse, sBest;
+    int              fineStep, rawCand;
+    unsigned int     sCandidate;
+    double           runSum, maxRunSum, v;
+    double           bestPeakMag, re, im, mag, peak;
+    char             alignMsg[256];
+    PFFTTable        tbl;
+
+    alignBufReady = 0;
+
+    criScans   = alignCriScans;
+    chirpScans = alignChirpScans;
+
+    if (criScans == 0 || chirpScans == 0 || chirpScans >= criScans ||
+        criScans > ALIGN_CRI_MAX)
+    {
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_ALIGN, "Align: Invalid parameters");
+        return;
+    }
+
+    nCris = SCANS_PER_HALF / criScans;
+    if (nCris > (unsigned int)ALIGN_CHIRPS_MAX) nCris = (unsigned int)ALIGN_CHIRPS_MAX;
+    if (nCris < 4U)
+    {
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_ALIGN, "Align: Too few CRIs in buffer (<4)");
+        return;
+    }
+
+    /* --- COARSE: accumulate power at each sample position within the CRI --- */
+    memset (powerProfile, 0, criScans * sizeof (double));
+    for (m = 0; m < nCris; m++)
+        for (s = 0; s < criScans; s++)
+        {
+            v = (double)alignRawBuf[(m * criScans + s) * 2U] - 32768.0;
+            powerProfile[s] += v * v;
+        }
+
+    /* Circular sliding window of width chirpScans — find phase with max chirp energy */
+    runSum = 0.0;
+    for (i = 0; i < chirpScans; i++)
+        runSum += powerProfile[i];
+    maxRunSum = runSum;
+    sCoarse   = 0;
+    for (s = 1; s < criScans; s++)
+    {
+        runSum += powerProfile[(s + chirpScans - 1U) % criScans];
+        runSum -= powerProfile[s - 1U];
+        if (runSum > maxRunSum) { maxRunSum = runSum; sCoarse = s; }
+    }
+
+    /* --- FINE: FFT coherence metric — requires chirpScans to be power of 2 --- */
+    if (chirpScans < 4U || (chirpScans & (chirpScans - 1U)) != 0U)
+    {
+        chirpSampleOffset = (int)sCoarse;
+        snprintf (alignMsg, sizeof (alignMsg),
+                  "Align OK (coarse): offset=%u  CRIs=%u", sCoarse, nCris);
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_ALIGN, alignMsg);
+        return;
+    }
+
+    tbl = ADC_GetFFTTable ((U32)chirpScans);
+    if (!tbl || !ADC_EnsureFFTBufs ((U32)chirpScans))
+    {
+        chirpSampleOffset = (int)sCoarse;
+        snprintf (alignMsg, sizeof (alignMsg),
+                  "Align OK (coarse, no FFT): offset=%u", sCoarse);
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_ALIGN, alignMsg);
+        return;
+    }
+
+    sBest       = sCoarse;
+    bestPeakMag = -1.0;
+
+    for (fineStep = -(int)ALIGN_FINE_RADIUS; fineStep <= (int)ALIGN_FINE_RADIUS; fineStep++)
+    {
+        rawCand = (int)sCoarse + fineStep;
+        while (rawCand < 0)              rawCand += (int)criScans;
+        while (rawCand >= (int)criScans) rawCand -= (int)criScans;
+        sCandidate = (unsigned int)rawCand;
+
+        /* Skip windows that would overrun the CRI boundary */
+        if (sCandidate + chirpScans > criScans) continue;
+
+        /* Coherently sum chirpScans samples across nCris CRIs at this offset */
+        memset (fftPaddedWork, 0, chirpScans * sizeof (double));
+        for (m = 0; m < nCris; m++)
+            for (i = 0; i < chirpScans; i++)
+                fftPaddedWork[i] +=
+                    (double)alignRawBuf[((m * criScans + sCandidate + i) * 2U)] - 32768.0;
+
+        /* Window and FFT */
+        ADC_ApplyWindow (fftPaddedWork, (U32)chirpScans, 1 /* Hann */);
+        FFTEx (fftPaddedWork, (ssize_t)chirpScans, (ssize_t)chirpScans,
+               tbl, FALSE, fftOut0);
+
+        /* Peak spectral magnitude in lower quarter — excludes flyback high-freq beat */
+        peak = 0.0;
+        for (i = 1U; i < chirpScans / 4U; i++)
+        {
+            re  = fftOut0[i].real;
+            im  = fftOut0[i].imaginary;
+            mag = re * re + im * im;
+            if (mag > peak) peak = mag;
+        }
+        if (peak > bestPeakMag)
+        {
+            bestPeakMag = peak;
+            sBest       = sCandidate;
+        }
+    }
+
+    chirpSampleOffset = (int)sBest;
+    snprintf (alignMsg, sizeof (alignMsg),
+              "Align OK: offset=%d  dead=%u  CRIs=%u",
+              chirpSampleOffset, criScans - chirpScans, nCris);
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_ALIGN, alignMsg);
+}
+
+/*---------------------------------------------------------------------------
+ * ADC_AppendSidecarMetrics — appends [Peak_Metrics] to an existing .hdr.
+ *   Called after all threads have completed so diagHalfReady and the peak
+ *   globals are final.  Only called when a file was actually being saved.
+ *---------------------------------------------------------------------------*/
+static void ADC_AppendSidecarMetrics (const char *baseName)
+{
+    char  hdrPath[512];
+    FILE *hdr;
+
+    snprintf (hdrPath, sizeof (hdrPath), "%s.hdr", baseName);
+    hdr = fopen (hdrPath, "a");
+    if (!hdr) return;
+
+    fprintf (hdr, "\n[Peak_Metrics]\n");
+    fprintf (hdr, "MaxHold_Dbm           = %.2f\n",  maxHoldDbm);
+    fprintf (hdr, "MaxHold_Range_m       = %.3f\n",  maxHoldRange_m);
+    fprintf (hdr, "LastPeak_LRX_Range_m  = %.3f\n",  lastPeak0Range_m);
+    fprintf (hdr, "LastPeak_LRX_Dbm      = %.2f\n",  lastPeak0Dbm);
+    fprintf (hdr, "LastPeak_URX_Range_m  = %.3f\n",  lastPeak1Range_m);
+    fprintf (hdr, "LastPeak_URX_Dbm      = %.2f\n",  lastPeak1Dbm);
+    fprintf (hdr, "CompleteHalfBufs      = %u\n",    (unsigned)diagHalfReady);
+
+    fclose (hdr);
 }
 
 /*---------------------------------------------------------------------------
@@ -1915,7 +2183,9 @@ static void ADC_StopAcquisition (void)
 {
     U32 startPos, accessCnt;
 
-    isAcquiring = 0;
+    isAcquiring    = 0;
+    alignRequested = 0;    /* cancel any pending capture */
+    alignBufReady  = 0;
 
     if (pollThreadID != 0)
     {
@@ -1939,6 +2209,28 @@ static void ADC_StopAcquisition (void)
     {
         WD_AI_AsyncClear (adcCard, &startPos, &accessCnt);
 
+        /* Trim SAVE_TOFILE output to complete half-buffers only.  The driver
+           flushes its partially-filled DMA buffer on AsyncClear, leaving extra
+           samples at the end of the file.  Truncating to diagHalfReady full
+           half-buffers removes that tail so post-processing sees clean data. */
+        if (saveMode == SAVE_TOFILE && recordPath[0] != '\0')
+        {
+            char         datPath[512];
+            HANDLE       hFile;
+            LARGE_INTEGER li;
+            snprintf (datPath, sizeof (datPath), "%s.dat", recordPath);
+            hFile = CreateFile (datPath, GENERIC_WRITE, 0, NULL, OPEN_EXISTING,
+                                FILE_ATTRIBUTE_NORMAL, NULL);
+            if (hFile != INVALID_HANDLE_VALUE)
+            {
+                li.QuadPart = (LONGLONG)diagHalfReady
+                              * (LONGLONG)HALF_BUF_SAMPLES * sizeof (U16);
+                SetFilePointerEx (hFile, li, NULL, FILE_BEGIN);
+                SetEndOfFile (hFile);
+                CloseHandle (hFile);
+            }
+        }
+
         /* Disable double-buffer mode and release all driver-side buffer
            registrations.  Without ContBufferReset the driver keeps the old
            page-pin entries, causing -201 ErrorConfigIoctl on the next
@@ -1946,6 +2238,10 @@ static void ADC_StopAcquisition (void)
         WD_AI_AsyncDblBufferMode (adcCard, 0);
         WD_AI_ContBufferReset (adcCard);
     }
+
+    /* Append final peak/hold metrics to the sidecar if a file was being saved */
+    if (saveMode != SAVE_NONE && recordPath[0] != '\0')
+        ADC_AppendSidecarMetrics (recordPath);
 
     /* Now safe to free user-space buffers — driver registrations are cleared */
     ADC_FreeBuffer (&hDmaBuffer1, &dmaBuffer1);
@@ -1967,6 +2263,7 @@ static void ADC_StopAcquisition (void)
 
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_TIMER_POLL,    ATTR_ENABLED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_STOP_ACQ,  ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REALIGN,   ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_START_ACQ, ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RECORD,    ATTR_DIMMED, 0);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_SAVE,      ATTR_DIMMED, 0);
@@ -2149,6 +2446,14 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     diagSaveWritten = diagSaveDropped = diagPlotPosted = diagPlotDone = diagDmaOverrun = 0;
     plotBusy = 0;
 
+    /* Reset max hold, last-peak globals, and alignment offset for fresh acquisition */
+    maxHoldDbm       = -999.0;
+    maxHoldRange_m   = 0.0;
+    maxHoldValid     = 0;
+    lastPeak0Range_m = 0.0;  lastPeak0Dbm = -999.0;
+    lastPeak1Range_m = 0.0;  lastPeak1Dbm = -999.0;
+    chirpSampleOffset = 0;
+
     /* Read ScanInterval from ADC tab (1..16777215) */
     GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SCAN_INTERVAL, &scanInterval);
     if (scanInterval < 1) scanInterval = 1;
@@ -2233,6 +2538,7 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CONFIGURE, ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_RELEASE,   ATTR_DIMMED, 1);
     SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_CALIBRATE, ATTR_DIMMED, 1);
+    SetCtrlAttribute (adcTabHandle, ADC_TAB_ADC_BTN_REALIGN,   ATTR_DIMMED, 0);
 
     /* Sync master tab */
     SetCtrlAttribute (masterTabHandle, MASTER_TAB_MASTER_BTN_ACQ_START,  ATTR_DIMMED, 1);
@@ -2602,6 +2908,70 @@ int CVICALLBACK AdcSingleShotCB (int p, int c, int ev, void *cbd, int e1, int e2
     if (ADC_StartCommon (SAVE_NONE, RETRIG_CNT_ONE) == 0)
         SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, "ADC: Single-shot armed");
     return 0; // This worked on first config, but failed when resetting.
+}
+
+/*---------------------------------------------------------------------------
+ * AdcReAlignCB — manually trigger one chirp re-alignment capture.
+ *   Requires acquisition to be running (radar must be transmitting and
+ *   generating trigger events).  Reads progDiv and scanInterval from the
+ *   DDS/ADC tabs to compute the full CRI length without assuming a
+ *   particular chirp:dead duty cycle.  Sets a flag consumed by the poll
+ *   thread on the next half-buffer boundary.
+ *---------------------------------------------------------------------------*/
+int CVICALLBACK AdcReAlignCB (int p, int c, int ev, void *cbd, int e1, int e2)
+{
+    int          progDiv, scanInterval, sampsPerChirp;
+    unsigned int criScans;
+
+    if (ev != EVENT_COMMIT) return 0;
+
+    if (!isAcquiring)
+    {
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_ALIGN,
+                    "Align: Start acquisition first");
+        return 0;
+    }
+    if (alignRequested || alignBufReady)
+    {
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_ALIGN,
+                    "Align: Already in progress");
+        return 0;
+    }
+
+    GetCtrlVal (ddsTabHandle, DDS_TAB_DDS_NUM_PROG_DIV,      &progDiv);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SCAN_INTERVAL, &scanInterval);
+    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SAMP_PER_TRIG, &sampsPerChirp);
+    if (scanInterval < 1) scanInterval = 1;
+
+    if (progDiv < 1 || sampsPerChirp < 4)
+    {
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_ALIGN,
+                    "Align: Invalid DDS/ADC settings");
+        return 0;
+    }
+
+    /* CRI length = trigger division ratio / scan decimation
+       = progDiv ADC_CLK cycles per trigger / scanInterval ADC_CLK cycles per scan */
+    criScans = (unsigned int)(progDiv / scanInterval);
+
+    if (criScans <= (unsigned int)sampsPerChirp)
+    {
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_ALIGN,
+                    "Align: No dead time (progDiv/scanInterval <= chirpScans)");
+        return 0;
+    }
+    if (criScans > ALIGN_CRI_MAX)
+    {
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_ALIGN,
+                    "Align: CRI too long — reduce progDiv or increase scanInterval");
+        return 0;
+    }
+
+    alignCriScans   = criScans;
+    alignChirpScans = (unsigned int)sampsPerChirp;
+    alignRequested  = 1;
+    SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_ALIGN, "Align: Capturing...");
+    return 0;
 }
 
 /*---------------------------------------------------------------------------
@@ -3276,33 +3646,21 @@ int CVICALLBACK MasterAcqStartCB (int p, int c, int ev, void *cbd,
 }
 
 /*---------------------------------------------------------------------------
- * MasterAcqRecordCB — start recording (SAVE_THREAD mode)
+ * MasterAcqRecordCB — start recording (SAVE_TOFILE / WD-DASK driver mode)
  *---------------------------------------------------------------------------*/
 int CVICALLBACK MasterAcqRecordCB (int p, int c, int ev, void *cbd,
                                    int e1, int e2)
 {
-    char datPath[512];
     if (ev != EVENT_COMMIT) return 0;
 
     ADC_GenerateFilename (recordPath, sizeof (recordPath));
-    snprintf (datPath, sizeof (datPath), "%s.dat", recordPath);
-    recordFile = fopen (datPath, "wb");
-    if (!recordFile)
-    {
-        SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
-                    "Targeting Status: File error");
-        return 0;
-    }
 
-    if (ADC_StartCommon (SAVE_THREAD, RETRIG_CNT_INF) < 0)
-    {
-        fclose (recordFile); recordFile = NULL;
+    if (ADC_StartCommon (SAVE_TOFILE, RETRIG_CNT_INF) < 0)
         return 0;
-    }
 
-    ADC_WriteSidecarHeader (recordPath, SAVE_THREAD, "master-record");
+    ADC_WriteSidecarHeader (recordPath, SAVE_TOFILE, "master-record");
     SetCtrlVal (adcTabHandle,    ADC_TAB_ADC_MSG_STATUS,
-                "ADC: Recording (thread)");
+                "ADC: Recording (ToFile)");
     SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
                 "Targeting Status: Recording");
     return 0;

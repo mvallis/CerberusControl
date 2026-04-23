@@ -1544,3 +1544,283 @@ contains `ADC_CLK / scanInterval` as computed by `DDS_UpdateTimingDisplay`):
 
 When `scanInterval = 1` (the previous hardcoded default), the result is identical
 to the old behaviour.
+
+---
+
+## 2026-04-23 — Peak/Hold Floor, Master Cursor, WD-DASK Save Path, Sidecar Metrics
+
+**Branch:** `Release1`
+
+### Overview
+
+Four related changes in one session:
+1. Minimum-range floor applied to all peak readouts (legend + max-hold)
+2. Master FFT graph cursor 1 reads out dBm at the user-selected range
+3. Master "Record" button switched from threaded save to WD-DASK driver save
+4. File truncation on stop + peak/hold metrics appended to sidecar on stop
+
+---
+
+### 1. Minimum range floor on all peak readouts
+
+**Problem:** The per-frame peak finder (which drives the legend labels "LRX x.xxm y.yydBm")
+started searching at bin 2, regardless of TX bandwidth or zero-padding. Near-DC bins could
+appear as the "peak" in cluttered or low-range scenes. The max-hold display already
+applied the `MAX_HOLD_RANGE_MIN_M = 1.9 m` threshold correctly.
+
+**Fix:** `minBin` is now computed once from `MAX_HOLD_RANGE_MIN_M / rangePerBin` immediately
+after the x-axis scaling, before both the peak finder and the max-hold search:
+
+```c
+minBin = (rangePerBin > 0.0)
+         ? (U32)(MAX_HOLD_RANGE_MIN_M / rangePerBin) + 1U : 2U;
+if (minBin < 2U) minBin = 2U;
+```
+
+Both `peak0`/`peak1` (legend) and the max-hold loop now start at `minBin`. The formula
+accounts automatically for TX bandwidth and zero-padding factor via `rangePerBin`.
+
+| TX BW | Zero-pad | rangePerBin | minBin (~2 m) |
+|-------|----------|-------------|---------------|
+| 1.5 GHz | ×1 | ~0.10 m | ~20 |
+| 1.5 GHz | ×4 | ~0.025 m | ~77 |
+
+**Files changed:** `DeviceControl_FullThreaded.c` — `ADC_PlotDeferred` (~line 1869)
+
+---
+
+### 2. Master FFT graph cursor readout
+
+**What was done in UIR:** Cursor 1 was added to `MASTER_TAB_MASTER_GRAPH_FFT` in the
+CVI UIR Editor (snap-to-plot mode). No constant name is assigned — cursors are accessed
+by number (1-based).
+
+**Code:** After the master plot markers, each plot cycle reads cursor 1:
+
+```c
+GetGraphCursor (masterTabHandle, MASTER_TAB_MASTER_GRAPH_FFT, 1, &crsX, &crsY);
+crsBin = (U32)(crsX + 0.5);   /* crsX is in data coordinates (bin index) */
+```
+
+The result is formatted as:
+
+```
+Cursor: 4.20 m  LRX -14.3 dBm  URX -17.1 dBm
+```
+
+and written to `MASTER_TAB_GRAPH_LABEL` (the text message control near the graph).
+Both channels are sampled at the cursor bin simultaneously.
+
+**Note on CVI cursor coordinates:** `GetGraphCursor` returns the cursor x position in
+**data coordinates** (bin index, 0-based double), not in display coordinates (metres).
+The axis `ATTR_XAXIS_GAIN = rangePerBin` affects axis tick labels only, not the value
+returned by `GetGraphCursor`. Range is recovered as `(double)crsBin * rangePerBin`.
+
+**Files changed:** `DeviceControl_FullThreaded.c` — `ADC_PlotDeferred` (~line 1987)
+
+---
+
+### 3. Master "Record" button switched to WD-DASK (SAVE_TOFILE)
+
+**Previous state:** `MasterAcqRecordCB` called `ADC_StartCommon(SAVE_THREAD, ...)`,
+opening the output file via `fopen`/`fwrite` through the user-space TSQ save thread.
+
+**New state:** `MasterAcqRecordCB` now calls `ADC_StartCommon(SAVE_TOFILE, ...)`.
+The ADLINK driver writes raw U16 data directly to disk via `WD_AI_ContScanChannelsToFile`
++ `WD_AI_AsyncDblBufferToFile`. No `fopen` on the application side.
+
+**Save button mapping (current):**
+
+| Button | Mode | Mechanism |
+|--------|------|-----------|
+| ADC tab — Start Acq | `SAVE_NONE` | Monitor only |
+| ADC tab — Record | `SAVE_THREAD` | TSQ → fwrite thread |
+| ADC tab — Save | `SAVE_TOFILE` | WD-DASK driver (unchanged) |
+| Master tab — Start | `SAVE_NONE` | Monitor only |
+| **Master tab — Record** | **`SAVE_TOFILE`** | **WD-DASK driver (changed)** |
+| Master tab — Reset+Start | `SAVE_TOFILE` | WD-DASK driver (unchanged) |
+
+**Files changed:** `DeviceControl_FullThreaded.c` — `MasterAcqRecordCB` (~line 3600)
+
+---
+
+### 4. WD-DASK file format — confirmed no binary header
+
+The ADLINK sample code (`CAIDbfFile/CAIDbF.c`, `CAIDbfFileDiv/CAIDbF.c`) confirms:
+
+- `WD_AI_ContScanChannelsToFile` writes **raw U16 interleaved samples with no binary
+  file header**. Byte 0 of the `.dat` file is sample 0, CH0.
+- `WD_AI_AsyncClear(card, &startPos, &accessCnt)` flushes the partially-filled
+  current DMA half-buffer to the file and returns `accessCnt` = number of extra samples
+  written. The ADLINK sample explicitly adds this to its running total count.
+
+**Consequence:** Without intervention, the `.dat` file ends with an incomplete
+half-buffer (variable size each run, depending on when Stop is pressed). This produced
+the "random lingering samples at the end" seen in post-processing.
+
+**Fix:** `ADC_StopAcquisition` now truncates the `.dat` file to exactly
+`diagHalfReady × HALF_BUF_SAMPLES × 2` bytes immediately after `WD_AI_AsyncClear`,
+using the Win32 `SetFilePointerEx` + `SetEndOfFile` API. This removes the partial
+DMA flush and gives a file of exactly `diagHalfReady` complete half-buffers.
+
+```c
+if (saveMode == SAVE_TOFILE && recordPath[0] != '\0')
+{
+    HANDLE hFile = CreateFile (datPath, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, ...);
+    li.QuadPart = (LONGLONG)diagHalfReady * HALF_BUF_SAMPLES * sizeof(U16);
+    SetFilePointerEx (hFile, li, NULL, FILE_BEGIN);
+    SetEndOfFile (hFile);
+    CloseHandle (hFile);
+}
+```
+
+**Files changed:** `DeviceControl_FullThreaded.c` — `ADC_StopAcquisition` (~line 2192)
+
+---
+
+### 5. Sidecar header additions and metrics on stop
+
+#### New field in `[Timing]`
+
+`ScansPerChirp = progDiv / scanInterval` is now written at the end of the `[Timing]`
+section. This is the full CRI length in ADC scans (chirp + dead time). Previously
+derivable from ProgDivider and ScanInterval but now explicit for MATLAB readability.
+
+#### New section `[Peak_Metrics]` — appended on stop
+
+`ADC_AppendSidecarMetrics(baseName)` is called from `ADC_StopAcquisition` when
+a file was being saved (`saveMode != SAVE_NONE`). It opens the `.hdr` in append mode
+and adds:
+
+```ini
+[Peak_Metrics]
+MaxHold_Dbm           = -12.34
+MaxHold_Range_m       = 5.678
+LastPeak_LRX_Range_m  = 4.321
+LastPeak_LRX_Dbm      = -14.56
+LastPeak_URX_Range_m  = 5.100
+LastPeak_URX_Dbm      = -15.20
+CompleteHalfBufs      = 42
+```
+
+`CompleteHalfBufs` matches `diagHalfReady` at stop time — it gives the exact number
+of full half-buffers in the truncated `.dat` file and is the ground truth for file
+size calculations in post-processing.
+
+---
+
+## MATLAB Post-Processing Update Notes
+
+### File structure (SAVE_TOFILE / WD-DASK mode)
+
+```
+CerberusData_YYYYMMDD_HHMMSS.dat   — raw binary
+CerberusData_YYYYMMDD_HHMMSS.hdr   — plain-text INI sidecar
+```
+
+**`.dat` file:**
+- **No binary header.** Data starts at byte 0.
+- Format: interleaved U16, little-endian: `[CH0_s0, CH1_s0, CH0_s1, CH1_s1, ...]`
+- Mid-code offset: 32768 (subtract to convert to signed; divide by 32768 for ±1 FS)
+- Voltage: `(sample - 32768) / 32768 * VoltageRange_V` (VoltageRange_V from sidecar)
+- File size: **exactly** `CompleteHalfBufs × HalfBufSamples × 2` bytes
+  (no partial half-buffer at end — truncated on stop since 2026-04-23)
+- Total scans: `CompleteHalfBufs × ScansPerHalf` (each scan = one CH0+CH1 pair)
+
+**Existing MATLAB read-in to update:**
+
+1. **Remove any header skip.** If the existing script skipped any bytes at the start
+   of the file, remove that skip — the data starts at byte 0.
+
+2. **Read using `CompleteHalfBufs` from sidecar** (not file size) as the authoritative
+   sample count, to avoid off-by-one from rounding:
+   ```matlab
+   nHalfs  = hdr.Peak_Metrics.CompleteHalfBufs;   % from sidecar [Peak_Metrics]
+   nScans  = nHalfs * hdr.Data_Format.ScansPerHalf;
+   nSamps  = nScans * hdr.Data_Format.NumChannels; % = nHalfs * HalfBufSamples
+   raw = fread(fid, nSamps, 'uint16');
+   ```
+
+3. **Reshape and deinterleave:**
+   ```matlab
+   raw  = reshape(raw, 2, []);          % 2 rows: [CH0; CH1]
+   ch0  = double(raw(1,:)) - 32768;
+   ch1  = double(raw(2,:)) - 32768;
+   ```
+
+4. **Convert to volts:**
+   ```matlab
+   Vrange = hdr.Data_Format.VoltageRange_V;
+   ch0_V  = ch0 / 32768 * Vrange;
+   ch1_V  = ch1 / 32768 * Vrange;
+   ```
+
+5. **Reshape into chirps** using `ScansPerChirp` from `[Timing]`:
+   ```matlab
+   Ns = hdr.Timing.ScansPerChirp;      % full CRI length (chirp + dead time)
+   Nc = hdr.Data_Format.ScansPerHalf.ScansPerChirp;  % or floor(nScans / Ns)
+   Nc = floor(nScans / Ns);
+   ch0_chirps = reshape(ch0(1 : Nc*Ns), Ns, Nc);   % [samples_per_CRI × num_chirps]
+   ch1_chirps = reshape(ch1(1 : Nc*Ns), Ns, Nc);
+   ```
+   The first `SampsPerChirp` rows of each column are the active chirp; the remaining
+   rows (up to `ScansPerChirp`) are dead time (no TX signal). Discard or keep as needed.
+
+6. **FMCW range FFT per chirp:**
+   ```matlab
+   Nchirp = hdr.Timing.SampsPerChirp;   % active chirp samples only
+   chirp_data = ch0_chirps(1:Nchirp, :);
+   padFactor  = 4;                       % match ZeroPadFactor from [FFT_Processing]
+   Nfft       = Nchirp * padFactor;
+   window     = hann(Nchirp);
+   chirp_win  = chirp_data .* window;    % apply window column-wise
+   R = fft(chirp_win, Nfft, 1);         % range FFT per chirp, zero-padded
+   R = R(1:Nfft/2, :);                  % positive frequencies only
+   ```
+
+7. **Range axis:**
+   ```matlab
+   c   = 299792458;
+   BW  = hdr.TX_Radar.TX_Bandwidth_GHz * 1e9;
+   rangePerBin = c / (2 * BW * Nfft / Nchirp);  % matches C code formula
+   r_axis = (0 : Nfft/2-1) * rangePerBin;
+   ```
+   Equivalently: `rangePerBin = c * Nchirp / (2 * BW * Nfft)`.
+
+8. **Check for new sidecar section `[Peak_Metrics]`:**
+   This section is appended at the end of the `.hdr` after recording stops. A sidecar
+   written by an older build will not have it — add an `isfield` guard in MATLAB:
+   ```matlab
+   if isfield(hdr, 'Peak_Metrics')
+       maxHold_dBm   = hdr.Peak_Metrics.MaxHold_Dbm;
+       maxHold_range = hdr.Peak_Metrics.MaxHold_Range_m;
+       nHalfs        = hdr.Peak_Metrics.CompleteHalfBufs;
+   end
+   ```
+
+### Sidecar parsing reminder
+
+Parse the `.hdr` as INI-style key=value pairs, grouped by `[Section]` headers.
+All numeric fields are plain ASCII decimal. String fields (`SaveMode`, `Context`,
+`Interleave`, etc.) are plain text. Section names are case-sensitive as written.
+
+The `[Peak_Metrics]` section will be present in all files recorded from this build
+onward (when a save mode was active). Files from earlier builds will have all sections
+up to and including `[Run_Note]` only.
+
+### Key sidecar fields for post-processing
+
+| Section | Field | Use |
+|---------|-------|-----|
+| `[Data_Format]` | `HalfBufSamples` | Samples per half-buffer (U16 words, both channels) |
+| `[Data_Format]` | `ScansPerHalf` | Sample pairs (scans) per half-buffer |
+| `[Data_Format]` | `VoltageRange_V` | Full-scale voltage (±) for conversion |
+| `[Timing]` | `SampsPerChirp` | Active chirp length in ADC samples (for FFT window) |
+| `[Timing]` | `ScansPerChirp` | Full CRI length in scans (chirp + dead time) — **new** |
+| `[Timing]` | `ProgDivider` | CRI length in ADC_CLK cycles |
+| `[Timing]` | `ScanInterval` | ADC_CLK cycles per sample |
+| `[TX_Radar]` | `TX_Bandwidth_GHz` | TX bandwidth for range scaling |
+| `[FFT_Processing]` | `ZeroPadFactor` | Zero-padding multiplier used in live display |
+| `[Peak_Metrics]` | `CompleteHalfBufs` | Authoritative half-buffer count (ground truth file size) — **new** |
+| `[Peak_Metrics]` | `MaxHold_Dbm` / `MaxHold_Range_m` | Max-hold result at stop time — **new** |
+
