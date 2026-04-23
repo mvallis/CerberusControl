@@ -44,6 +44,7 @@
 #define  ADC_TAB_ADC_BTN_CALIBRATE        26      /* control type: command, callback function: AdcCalibrateCB */
 #define  ADC_TAB_ADC_RING_ZEROPAD         27      /* control type: ring, callback function: (none) */
 #define  ADC_TAB_ADC_RING_WINDOW          28      /* control type: ring, callback function: (none) */
+#define  ADC_TAB_ADC_MSG_ALIGN            29      /* control type: textMsg, callback function: (none) */
 
      /* tab page panel controls */
 #define  DDS_TAB_DDS_NUM_CLOCK_MHZ        2       /* control type: numeric, callback function: (none) */

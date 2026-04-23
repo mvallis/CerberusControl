@@ -992,12 +992,17 @@ static const U16 adcRangeTable[] = {
 static I16   adcCard       = -1;
 static int   adcRegistered = 0;
 static int   adcConfigured = 0;
+static int   adcConfiguredRange     = 0;   /* cached at Configure time for sidecar */
+static int   adcConfiguredImpedance = 0;
+static int   adcConfiguredTimebase  = 0;
 static HGLOBAL hDmaBuffer1  = NULL;   /* GlobalAlloc handles — needed for GlobalUnfix */
 static HGLOBAL hDmaBuffer2  = NULL;
 static U16  *dmaBuffer1    = NULL;
 static U16  *dmaBuffer2    = NULL;
 static U16   firstBufId    = 0;
 static U16   secondBufId   = 0;
+
+// Set up trigger alignment from here... make sure to prototype function etc.!
 
 static volatile int    isAcquiring = 0;
 static int             saveMode    = SAVE_NONE;
@@ -1216,7 +1221,12 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode,
     /* ================================================================
      *  [Data_Format]  — everything needed to parse the binary .dat
      * ================================================================ */
-    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_RANGE, &range);
+    /* Use cached values from AdcConfigureCB — these reflect what was actually
+       programmed into hardware, not the current GUI ring state (which may have
+       been changed between Configure and Record). */
+    range     = adcConfiguredRange;
+    impedance = adcConfiguredImpedance;
+    timebase  = adcConfiguredTimebase;
     if (range < 0 || range >= ADC_RANGE_TABLE_LEN) range = 0;
     voltRange = ADC_RangeToVolts (adcRangeTable[range]);
 
@@ -1232,10 +1242,8 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode,
     fprintf (hdr, "ScansPerHalf      = %u\n\n", SCANS_PER_HALF);
 
     /* ================================================================
-     *  [ADC]  — digitiser configuration
+     *  [ADC]  — digitiser configuration (timebase, impedance, range from cache above)
      * ================================================================ */
-    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_TIMEBASE,     &timebase);
-    GetCtrlVal (adcTabHandle, ADC_TAB_ADC_RING_IMPEDANCE,    &impedance);
     GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SAMP_PER_TRIG, &sampsPerTrig);
     GetCtrlVal (adcTabHandle, ADC_TAB_ADC_NUM_SCAN_INTERVAL, &scanInterval);
     if (scanInterval < 1) scanInterval = 1;
@@ -1245,7 +1253,7 @@ static void ADC_WriteSidecarHeader (const char *baseName, int mode,
     fprintf (hdr, "Timebase          = %s\n",
              (timebase == 0) ? "External" : "Internal");
     fprintf (hdr, "Impedance         = %s\n",
-             impedance ? "50 ohm" : "1 Mohm");
+             impedance ? "1 Mohm" : "50 ohm");
     fprintf (hdr, "SampsPerChirp_ADC = %d\n", sampsPerTrig);
     fprintf (hdr, "ScanInterval      = %d\n\n", scanInterval);
 
@@ -2474,6 +2482,13 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
     if (plotScans > PLOT_SCANS_MAX) plotScans = PLOT_SCANS_MAX;
     adcVoltScale = ADC_RangeToVolts (adcRangeTable[range]);
 
+    /* Cache the UI-selected settings that were actually sent to hardware.
+       ADC_WriteSidecarHeader reads from these instead of re-querying the GUI,
+       eliminating any race between Configure and Record. */
+    adcConfiguredRange     = range;
+    adcConfiguredImpedance = impedance;
+    adcConfiguredTimebase  = timebase;
+
     /* Configure ADC: external timebase, no duty restore, ConvSrc=0, single-edge,
        no auto-reset */
     err = WD_AI_Config (adcCard, WD_ExtTimeBase, 0, 0, 0, 0);
@@ -2493,18 +2508,17 @@ int CVICALLBACK AdcConfigureCB (int p, int c, int ev, void *cbd, int e1, int e2)
         SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
         return 0;
     }
-    if (impedance)
+    /* Set impedance per-channel: ring value maps directly to driver constants
+       (IMPEDANCE_50Ohm=0, IMPEDANCE_HI=1). Always call explicitly. */
+    for (i = 0; i < (int)ADC_NUM_CH; i++)
     {
-        for (i = 0; i < (int)ADC_NUM_CH; i++)
+        err = WD_AI_CH_ChangeParam (adcCard, (U16)i, AI_IMPEDANCE, (U32)impedance);
+        if (err != NoError)
         {
-            err = WD_AI_CH_ChangeParam (adcCard, (U16)i, AI_IMPEDANCE, 1);
-            if (err != NoError)
-            {
-                snprintf (msg, sizeof(msg),
-                          "ADC: CH_ChangeParam impedance ch%d failed (%d)", i, (int)err);
-                SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
-                return 0;
-            }
+            snprintf (msg, sizeof(msg),
+                      "ADC: CH_ChangeParam impedance ch%d failed (%d)", i, (int)err);
+            SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS, msg);
+            return 0;
         }
     }
 
