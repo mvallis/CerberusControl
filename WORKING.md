@@ -1824,3 +1824,74 @@ up to and including `[Run_Note]` only.
 | `[Peak_Metrics]` | `CompleteHalfBufs` | Authoritative half-buffer count (ground truth file size) — **new** |
 | `[Peak_Metrics]` | `MaxHold_Dbm` / `MaxHold_Range_m` | Max-hold result at stop time — **new** |
 
+---
+
+## DMA Buffer Overrun (OVR) Investigation — 2026-04-24
+
+### Status: partially resolved, residual OVR unresolved at 36 MS/s — pinned for later
+
+### Background
+`diagDmaOverrun` (shown as `OVR` in the status line) counts DMA FIFO overruns detected
+via `WD_AI_ContStatus` bits `0x60000000` (`BUF_OVR_DET | FIFO_OVR_DET`).
+
+At 36 MS/s scan rate (2 ch), the raw data rate is **144 MB/s** and each half-buffer
+fills in **116.5 ms**.  The poll thread must call `WD_AI_AsyncDblBufferHandled` within
+that window or the DMA overwrites unread data.
+
+### Changes made this session
+
+| # | Change | File | Effect |
+|---|--------|------|--------|
+| 1 | `HALF_BUF_SAMPLES` 1 MB → 8 MB (2^23) | constants | 8× draining headroom (~420 ms fill at 36 MS/s) |
+| 2 | `SCANS_PER_HALF` derived from `HALF_BUF_SAMPLES/ADC_NUM_CH` | constants | Scales automatically |
+| 3 | `ALIGN_CRI_MAX` derived from `SCANS_PER_HALF/4U` | constants | Scales automatically; sizes `powerProfile[]` (8 MB BSS) |
+| 4 | `SAVE_QUEUE_CAP` 32 → 64 slots (1 GB TSQ) | constants | ~42 s headroom at 24 MB/s deficit; stays under CVI 32-bit TSQ ceiling (127 slots max at 16 MB/item) |
+| 5 | `TSQ_WRITE_MS` 50 → 0 | constants | Poll thread never blocks on save queue full |
+| 6 | OVR edge-detection (`prevOvrBits`) | poll thread | Counts only new hardware latch transitions, not persistent state |
+| 7 | `MasterAcqRecordCB` SAVE_TOFILE → SAVE_THREAD | master save CB | Eliminates synchronous `WD_AI_AsyncDblBufferToFile` from poll thread |
+| 8 | `HardwarePollThread` elevated to `THREAD_PRIORITY_TIME_CRITICAL` | poll thread | Prevents user-mode scheduler preemption during processing |
+
+### Root causes resolved
+- **SAVE_TOFILE in master save button**: `WD_AI_AsyncDblBufferToFile` is synchronous.
+  Once the OS write cache fills (~100 events × 16 MB = 1.6 GB written), writes stall
+  for ~133 ms > 116.5 ms window → OVR.  Fixed by switching to SAVE_THREAD.
+- **`TSQ_WRITE_MS = 50`**: Queue-full condition blocked poll thread for 50 ms.  Fixed to 0.
+- **Latched OVR status bits**: bits stay set after first overrun; edge detection now
+  prevents `diagDmaOverrun` accumulating on every subsequent event.
+- **`SAVE_QUEUE_CAP = 256`** (was attempted): 256 × 16 MB = 4 GB = 2^32 overflows
+  CVI's internal 32-bit TSQ arithmetic → divide-by-zero in `CmtReadTSQData`.  Reverted to 64.
+
+### Residual issue — PINNED
+**Symptom:** At 36 MS/s, OVR first appears at ~HR 96–105 and accumulates (~44 OVR
+over 404 HR in one run).  `Sd = 0` throughout (disk keeping up; queue never fills).
+
+**Eliminated causes:**
+- Save queue full (Sd = 0)
+- Save queue blocking poll thread (TSQ_WRITE_MS = 0)
+- Latched OVR bits inflating count (edge detection in place)
+- User-mode thread preemption (THREAD_PRIORITY_TIME_CRITICAL set)
+
+**Suspected remaining cause:**
+Hardware-level DPC/interrupt preemption of the poll thread, or occasional latency
+in `CmtWriteTSQData`'s internal mutex while the save thread holds it during a 16 MB
+`CmtReadTSQData` copy.  The 16 MB `CmtWriteTSQData` copy in the poll thread is the
+primary risk — if it is preempted mid-copy by a kernel DPC for even ~100 ms, the
+116.5 ms window is exceeded.
+
+**Planned fix (not yet implemented):**
+Decouple the 16 MB copy from the poll thread entirely using a three-stage pipeline:
+1. **Poll thread** (time-critical): post `activeBuf` index (4 bytes) to a tiny
+   index-queue; call `WD_AI_AsyncDblBufferHandled` immediately.  No large copy.
+2. **Copy thread** (new): read index, `memcpy` 16 MB from `dmaBuffer[index]` into a
+   free slot from a pre-allocated pool (64 × 16 MB = 1 GB).  Has 233 ms window
+   (2 × half-buffer fill) to complete the copy; takes ~2–4 ms.  Push pool-slot
+   pointer to save queue.
+3. **Save thread** (existing, unchanged): drain save queue, `fwrite` to disk.
+
+This removes ALL large memory operations from the poll thread.  The poll-thread
+processing time drops from ~10 ms (with 16 MB copy) to <1 ms, making OVR at 36 MS/s
+essentially impossible regardless of DPC latency.
+
+**Workaround in use:** 18 MS/s scan rate (half rate), which doubles the fill time to
+~233 ms, providing adequate margin with the current architecture.
+

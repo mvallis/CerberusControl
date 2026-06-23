@@ -952,10 +952,28 @@ int CVICALLBACK DdsDivRatioCB (int p, int c, int ev, void *cbd, int e1, int e2)
  * Constants
  *---------------------------------------------------------------------------*/
 #define ADC_NUM_CH          2U
-#define HALF_BUF_SAMPLES    1048576U    /* 2^20 U16 samples per half-buffer (2 MB)   */
-#define SCANS_PER_HALF      524288U     /* HALF_BUF_SAMPLES / ADC_NUM_CH             */
-#define SAVE_QUEUE_CAP      32          /* 32 × 2 MB = 64 MB queue headroom          */
-#define TSQ_WRITE_MS        50          /* ms to wait before counting a save drop     */
+/* DMA half-buffer size — 8× the original 2 MB / 2^20 setting.
+   16 MB per half (2^23 U16 samples), 32 MB total DMA; well within the 256 MB
+   PCI-9846H limit.  At 20 Msps total (2 ch × 10 Msps) each half fills in ~420 ms,
+   giving the poll thread 8× more draining headroom than the original ~50 ms and
+   greatly reducing OVR (DMA FIFO overrun) events. */
+#define HALF_BUF_SAMPLES    8388608U    /* 2^23 U16 samples per half-buffer (16 MB)  */
+/* Derived from HALF_BUF_SAMPLES — update both together if the buffer is resized. */
+#define SCANS_PER_HALF      (HALF_BUF_SAMPLES / ADC_NUM_CH)   /* 4 194 304           */
+/* Save-queue slot count.  Keep total ≤ ~2 GB: CVI's CmtNewTSQ uses 32-bit
+   arithmetic internally for slot-offset calculations, so numItems × itemSize
+   must not reach 2^32 (= 4 GB at 16 MB/item) or the total wraps to zero and
+   CmtReadTSQData will fault with a divide-by-zero.
+   64 × 16 MB = 1 GB (2^30) is comfortably within that limit and provides
+   ~42 s of recording headroom at a 24 MB/s write deficit (144 MB/s data rate
+   vs ~120 MB/s disk).  Safe maximum with 16 MB items is 127 slots (127×16=~2 GB). */
+#define SAVE_QUEUE_CAP      64          /* 64 × 16 MB = 1 GB queue headroom          */
+/* TSQ_WRITE_MS = 0: poll thread never blocks waiting for a free queue slot.
+   If the queue is full the write returns immediately and diagSaveDropped
+   increments.  A non-zero value (e.g. 50) would stall the poll thread for up
+   to that many ms, which at 36 MS/s (116 ms half-buffer fill time) leaves
+   barely enough margin and causes OVR once the queue fills after ~100 events. */
+#define TSQ_WRITE_MS        0           /* non-blocking: drop immediately if queue full */
 #define PLOT_SCANS_MAX      131072U     /* max scans copied to plot buffer (one chirp)*/
 #define RETRIG_CNT_INF      1U          /* reTrgCnt=1 confirmed to give continuous acquisition
                                            with external digital trigger in double-buffer mode.
@@ -971,7 +989,11 @@ int CVICALLBACK DdsDivRatioCB (int p, int c, int ev, void *cbd, int e1, int e2)
 #define MAX_HOLD_RANGE_MIN_M  1.9       /* minimum range (m) for max hold consideration          */
 #define ALIGN_CHIRPS_MAX      32        /* CRIs averaged in fine alignment search                */
 #define ALIGN_FINE_RADIUS     16        /* ±samples searched around coarse peak in fine step     */
-#define ALIGN_CRI_MAX         131072U   /* max CRI scans (= SCANS_PER_HALF/4, guarantees >=4 CRIs) */
+/* ALIGN_CRI_MAX = SCANS_PER_HALF/4: ensures at least 4 complete CRIs always fit in
+   one half-buffer, which is the minimum needed for reliable alignment averaging.
+   Expressed as a derived constant so it scales automatically with HALF_BUF_SAMPLES.
+   Also sizes the powerProfile[] static array in ADC_AlignDeferred (8 MB at 8× buf). */
+#define ALIGN_CRI_MAX         (SCANS_PER_HALF / 4U)  /* 1 048 576 scans              */
 
 #define SAVE_NONE    0
 #define SAVE_THREAD  1                  /* user-space TSQ → fwrite thread            */
@@ -1024,7 +1046,11 @@ static double        lastPeak1Dbm     = -999.0;
 static int           chirpSampleOffset = 0;    /* scan offset applied to plotBuffer copy  */
 static volatile int  alignRequested    = 0;    /* set by button, cleared by poll thread   */
 static volatile int  alignBufReady     = 0;    /* set by poll thread, cleared by deferred */
-static U16           alignRawBuf[HALF_BUF_SAMPLES]; /* raw half-buffer copy for alignment */
+/* alignRawBuf: verbatim copy of one DMA half-buffer, captured by the poll thread when
+   a trigger-alignment run is requested.  Size = HALF_BUF_SAMPLES × sizeof(U16) = 16 MB.
+   Stored in BSS (zero-initialised at load; pages committed lazily by the OS, so no
+   physical RAM cost until the first alignment run writes into it). */
+static U16           alignRawBuf[HALF_BUF_SAMPLES];
 static unsigned int  alignCriScans     = 0;    /* full CRI length in scans (progDiv/scanInterval) */
 static unsigned int  alignChirpScans   = 0;    /* SampsPerChirp at time of request        */
 
@@ -1062,6 +1088,12 @@ static volatile U32 diagSaveDropped = 0;
 static volatile U32 diagPlotPosted  = 0;
 static volatile U32 diagPlotDone    = 0;
 static volatile U32 diagDmaOverrun  = 0;
+/* Tracks the last-seen OVR status bits so only rising-edge transitions are
+   counted.  Bits 0x60000000 on the PCI-9846H are hardware-latched: once set
+   they stay set for the rest of the acquisition.  Without edge detection every
+   subsequent WD_AI_ContStatus call would increment diagDmaOverrun even though
+   no new overrun occurred. */
+static U32          prevOvrBits     = 0;
 
 /*---------------------------------------------------------------------------
  * Forward declarations (ADC-internal)
@@ -1552,6 +1584,13 @@ static int CVICALLBACK HardwarePollThread (void *data)
     U32     sts;
     int     activeBuf = 0;
 
+    /* Elevate to time-critical priority for the duration of acquisition.
+       Prevents user-mode threads from preempting this thread during the
+       ~10 ms processing window; at 36 MS/s the DMA fill time is only
+       116.5 ms so any preemption >~100 ms causes OVR. Restored on exit
+       so the pool thread does not carry elevated priority after returning. */
+    SetThreadPriority (GetCurrentThread (), THREAD_PRIORITY_TIME_CRITICAL);
+
     while (isAcquiring)
     {
         WD_AI_AsyncDblBufferHalfReady (adcCard, &halfReady, &fStop);
@@ -1570,10 +1609,15 @@ static int CVICALLBACK HardwarePollThread (void *data)
             U16 *src = (activeBuf == 0) ? dmaBuffer1 : dmaBuffer2;
             diagHalfReady++;
 
-            /* Check for DMA overrun */
+            /* Check for DMA overrun — count rising-edge transitions only.
+               Bits 0x60000000 (BUF_OVR_DET | FIFO_OVR_DET) are hardware-latched
+               and stay set once triggered, so we only increment on new bits. */
             WD_AI_ContStatus (adcCard, &sts);
-            if (sts & 0x60000000U)
-                diagDmaOverrun++;
+            {
+                U32 newBits = (sts & 0x60000000U) & ~prevOvrBits;
+                if (newBits) diagDmaOverrun++;
+                prevOvrBits = sts & 0x60000000U;
+            }
 
             /* Save (priority) */
             if (saveMode == SAVE_THREAD && saveQueue != 0)
@@ -1617,6 +1661,7 @@ static int CVICALLBACK HardwarePollThread (void *data)
         }
     }
 
+    SetThreadPriority (GetCurrentThread (), THREAD_PRIORITY_NORMAL);
     return 0;
 }
 
@@ -2030,7 +2075,10 @@ static void CVICALLBACK ADC_PlotDeferred (void *data)
  *---------------------------------------------------------------------------*/
 static void CVICALLBACK ADC_AlignDeferred (void *data)
 {
-    static double    powerProfile[ALIGN_CRI_MAX];   /* mean power per CRI phase  */
+    /* powerProfile: mean signal power per CRI sample-offset, used during the
+       coarse alignment search.  Size = ALIGN_CRI_MAX × sizeof(double) = 8 MB.
+       Stored in BSS (lazily committed — no RAM cost until the first alignment run). */
+    static double    powerProfile[ALIGN_CRI_MAX];
     unsigned int     criScans, chirpScans, nCris, m, s, i;
     unsigned int     sCoarse, sBest;
     int              fineStep, rawCand;
@@ -2444,6 +2492,7 @@ static int ADC_StartCommon (int mode, U32 reTrgCnt)
     /* Reset diagnostics */
     diagPollCount = diagHalfReady = diagFStopCount = 0;
     diagSaveWritten = diagSaveDropped = diagPlotPosted = diagPlotDone = diagDmaOverrun = 0;
+    prevOvrBits = 0;
     plotBusy = 0;
 
     /* Reset max hold, last-peak globals, and alignment offset for fresh acquisition */
@@ -3646,21 +3695,43 @@ int CVICALLBACK MasterAcqStartCB (int p, int c, int ev, void *cbd,
 }
 
 /*---------------------------------------------------------------------------
- * MasterAcqRecordCB — start recording (SAVE_TOFILE / WD-DASK driver mode)
+ * MasterAcqRecordCB — start recording (SAVE_THREAD mode).
+ *
+ * Previously used SAVE_TOFILE (WD_AI_AsyncDblBufferToFile), which is a
+ * synchronous blocking call in the poll thread.  Once the OS write cache
+ * fills (~100 half-buffers, ~1.6 GB) the 16 MB write stalls for ~133 ms,
+ * exceeding the 116 ms half-buffer fill time at 36 MS/s → OVR.
+ *
+ * SAVE_THREAD decouples disk I/O entirely: the poll thread calls the fast
+ * WD_AI_AsyncDblBufferHandled and the DiskSaveThread drains via TSQ.
+ * With TSQ_WRITE_MS=0 the poll thread never blocks on save.
  *---------------------------------------------------------------------------*/
 int CVICALLBACK MasterAcqRecordCB (int p, int c, int ev, void *cbd,
                                    int e1, int e2)
 {
+    char datPath[512];
+
     if (ev != EVENT_COMMIT) return 0;
 
     ADC_GenerateFilename (recordPath, sizeof (recordPath));
-
-    if (ADC_StartCommon (SAVE_TOFILE, RETRIG_CNT_INF) < 0)
+    snprintf (datPath, sizeof (datPath), "%s.dat", recordPath);
+    recordFile = fopen (datPath, "wb");
+    if (!recordFile)
+    {
+        SetCtrlVal (adcTabHandle, ADC_TAB_ADC_MSG_STATUS,
+                    "ADC: Cannot open output file");
         return 0;
+    }
 
-    ADC_WriteSidecarHeader (recordPath, SAVE_TOFILE, "master-record");
+    if (ADC_StartCommon (SAVE_THREAD, RETRIG_CNT_INF) < 0)
+    {
+        fclose (recordFile); recordFile = NULL;
+        return 0;
+    }
+
+    ADC_WriteSidecarHeader (recordPath, SAVE_THREAD, "master-record");
     SetCtrlVal (adcTabHandle,    ADC_TAB_ADC_MSG_STATUS,
-                "ADC: Recording (ToFile)");
+                "ADC: Recording (thread)");
     SetCtrlVal (masterTabHandle, MASTER_TAB_MASTER_MSG_ADC_STATUS,
                 "Targeting Status: Recording");
     return 0;
