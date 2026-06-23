@@ -10,12 +10,15 @@ cvibuild.*/
 *.exe
 *.dll
 *.lib
+*.pdb           # MSVC/CVI debug databases
 
+# Local archive of old scratch/test files (kept on disk, never tracked)
+_archive/
 
-
-# Radar data files 
+# Radar data files
 *.dat
 *.hdr
+DataTest/*.bin  # top-level scratch captures (SingleShotData/ stays tracked)
 
 # === Additional MATLAB Specifics ===
 *.asv          # MATLAB Editor autosave files
