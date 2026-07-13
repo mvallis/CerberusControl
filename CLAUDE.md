@@ -98,6 +98,27 @@ Full investigation log: see `WORKING.md` § "DMA Buffer Overrun (OVR) Investigat
 
 ---
 
+## Open items to investigate (next dev session)
+
+Two items audited 2026-06-25 against the full WD-DASK reference and the current source.
+Neither is a confirmed bug; detail in `WORKING.md` § "2026-06-25 - WD-DASK audit".
+
+1. **OVR status mask is correct, do not re-flag.** `HardwarePollThread` counts DMA
+   overrun via `WD_AI_ContStatus` bits `0x60000000`. On the 9816/26/46 those are bit 29
+   (double-buffer overrun) and bit 30 (onboard SDRAM overflow), so the mask is right for
+   the 9846. Optional refinement for the residual-OVR hunt: sample bit 1 (A/D converter
+   overrun) separately from bits 29/30 to localise the cause, and cross-check
+   `WD_AI_AsyncDblBufferOverrun`.
+2. **Potential ADC impedance bug (git log) still open.** The ADC configure callback
+   sets per-channel impedance via `WD_AI_CH_ChangeParam(card, ch, AI_IMPEDANCE,
+   impedance)`, ring-mapped `IMPEDANCE_50Ohm=0` / `IMPEDANCE_HI=1` (verified against
+   `Wd-dask64.h`); the call is correct and error-checked. Root-cause lies elsewhere:
+   does the 9846**H** actually honour switchable impedance (may be fixed in hardware),
+   does the setting survive calibrate -> release -> re-register, and is 50 ohm or Hi-Z
+   right for the dechirped IF input.
+
+---
+
 ## ADC calibration sequence
 
 The PCI-9846H calibration must follow this exact order or `WD_AI_ContScanChannels`

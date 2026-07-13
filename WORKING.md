@@ -1895,3 +1895,58 @@ essentially impossible regardless of DPC latency.
 **Workaround in use:** 18 MS/s scan rate (half rate), which doubles the fill time to
 ~233 ms, providing adequate margin with the current architecture.
 
+---
+
+## 2026-06-25 - WD-DASK audit: OVR status mask and ADC impedance (open items)
+
+Cross-checked two suspected issues against the full WD-DASK Function Reference
+(rev 6.10) and the current `DeviceControl_FullThreaded.c`. Neither is a confirmed
+bug. Both are recorded so they are not re-flagged, and so the open impedance question
+stays tracked.
+
+### OVR status mask `0x60000000` is correct for the 9846
+
+`HardwarePollThreadFunction` counts DMA overrun from `WD_AI_ContStatus` via
+`sts & 0x60000000U` (rising-edge only; the bits are hardware-latched). The full
+PCI/PXI-9816/26/46 status table in the reference defines:
+
+- bit 1  - A/D overrun (converter front end)
+- bit 29 - double-buffer overrun
+- bit 30 - onboard SDRAM overflow
+
+So `0x60000000` = bit29 | bit30 = (double-buffer overrun | SDRAM overflow), the correct
+host-side overrun mask for this card. An earlier review wrongly called this a 9820-only
+layout after reading only bits 0-3 of the table; it is valid on the 9846, so do not
+re-flag it.
+
+Optional refinement for the residual-OVR investigation: the counter lumps bit29 and
+bit30 and ignores bit1. Sampling each bit separately would localise the residual OVR
+at 36 MS/s, since bit1 (converter front end), bit29 (host consumer fell behind) and
+bit30 (SDRAM overflow) point at different causes and different fixes.
+`WD_AI_AsyncDblBufferOverrun` is the card-independent cross-check.
+
+### Potential ADC impedance bug (git log) is still open
+
+The ADC configure callback (`DeviceControl_FullThreaded.c` ~L2866) sets the
+per-channel input impedance:
+
+```
+WD_AI_CH_ChangeParam(adcCard, ch, AI_IMPEDANCE, impedance);   /* impedance: 0 or 1 */
+```
+
+The mapping is correct against `Wd-dask64.h` (`AI_IMPEDANCE` = 1, `IMPEDANCE_50Ohm` = 0,
+`IMPEDANCE_HI` = 1), the value comes from the UI ring `ADC_TAB_ADC_RING_IMPEDANCE`
+(cached in `adcConfiguredImpedance`), and the call is error-checked. The code itself
+looks right, so the impedance issue noted in the git log is not in this mapping. To
+root-cause next time, check:
+
+1. Whether the 9846**H** actually honours switchable input impedance, or returns
+   NoError while the hardware stays fixed (the H variant may not support Hi-Z).
+2. Whether the setting survives the calibrate -> release -> re-register sequence, or is
+   cleared by it and needs re-applying after re-registration.
+3. Whether 50 ohm or Hi-Z is the correct termination for the dechirped IF input
+   (amplitude or reflection symptoms would point here).
+
+WD-DASK function context for both items is in the Cloud Radar guide
+("WD-DASK Function Guide and Acquisition Patterns", sections 3.7 and 4.4).
+
