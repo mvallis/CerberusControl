@@ -35,13 +35,13 @@ seven repos.
 
 | class | files | what it means here |
 |---|---|---|
-| `ALWAYS_LOADED` | 2 | read every session - the loading mechanism is named in section 2 |
-| `HANDOVER_DATED` | 3 | dated artefact - the archiving population |
-| `REFERENCE` | 1 | durable knowledge read on purpose |
+| `ALWAYS_LOADED` | 1 | read every session - the loading mechanism is named in section 2 |
+| `HANDOVER_DATED` | 2 | dated artefact - the archiving population |
+| `REFERENCE` | 3 | durable knowledge read on purpose |
 | `SOURCE` | 30 | code, config, data, or build input - not prose |
 | `ARCHIVED` | 1 | already retired, or self-declared DONE/SUPERSEDED |
 
-⭐ **The live surface of this repo is 2 files (5%)** - `ALWAYS_LOADED` + `TRIGGER_LOADED`
+⭐ **The live surface of this repo is 1 files (3%)** - `ALWAYS_LOADED` + `TRIGGER_LOADED`
 + `LEDGER` + `INVENTORY`. Everything else is reference, source, dated or retired.
 
 ## 2 - What is genuinely ALWAYS_LOADED, with the mechanism named
@@ -53,7 +53,6 @@ when the loading mechanism can be pointed at.
 | file | mechanism |
 |---|---|
 | `CLAUDE.md` | session-root context file |
-| `GEMINI.md` | Gemini CLI per-repo context file, functionally the CLAUDE.md equivalent for that tool, loaded automatically every session in that repo  [agent read] |
 
 ## 3 - MACHINE_CHECKED: is the checker actually wired?
 
@@ -74,7 +73,7 @@ An `ORPHAN` here means only: no inbound reference was found and no load mechanis
 
 ## 6 - Dated-artefact share
 
-**3 of 7 `.md` are `HANDOVER_DATED` (43%).** The estate-wide comparator quoted in the
+**2 of 7 `.md` are `HANDOVER_DATED` (29%).** The estate-wide comparator quoted in the
 protocol was 43%. This is the population an archiving pass would act on.
 
 ## 7 - What this sweep did NOT cover, and why
