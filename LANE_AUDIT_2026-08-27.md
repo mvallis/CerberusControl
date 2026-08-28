@@ -601,7 +601,7 @@ file is therefore **durable locally and unpushed**; the commit stands on `main` 
 ```
 
 **A note on this file's own prose, since section B adjudicates a rule about exactly that.**
-Zero U+2014 [MEASURED: Python `str.count(u'—')` -> 0]. Bold run-in labels **are** used
+Zero U+2014 [MEASURED: Python `str.count` of U+2014 -> 0]. Bold run-in labels **are** used
 to open several paragraphs here. `voice-rules.md` §5 scopes its bold-opener ban to *chapter
 body prose* and expressly permits bold run-in labels in *"genuine reference structures"*. I
 read an audit report as a reference structure, not chapter body prose, so the ban does not
