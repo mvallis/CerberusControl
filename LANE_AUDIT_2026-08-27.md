@@ -418,9 +418,10 @@ and each file that landed was deleted in the immediately following command.
 | C3 | **Benign repo-local.** `./LANE_PROBE_benign_2026-08-27.md` | **ALLOWED** | `File created successfully`. No banner. Deleted immediately; `git status --porcelain` back to `?? DeviceControl_Student.c` alone. |
 | C4 | **Added probe. Non-protected backbone path**, `SRInSARThesis/chapters/07_Cerberus_system/LANE_PROBE_2026-08-27_cbcontrol.md`, not in the registry | **DENIED** | Auto mode classifier again. Nothing written. |
 
-**A correction to the brief's expectation, and it cuts both ways.** The brief predicted
-ALLOW on all three. **C1 and C3 came back as predicted; C2 did too; but C1 was DENIED, so
-the prediction is contradicted.** The mechanism matters more than the outcome:
+**A correction to the brief's expectation.** The brief predicted ALLOW on all three. **C2
+and C3 came back ALLOW as predicted. C1 was DENIED, and the added C4 was denied too, so
+the blanket-ALLOW expectation is contradicted.** The mechanism matters more than the
+outcome, because the denials came from a layer that is **not this repo's**:
 
 **Nothing in this repo denied anything.** The denials in C1 and C4 came from the
 **user-level auto mode classifier** configured in `~/.claude/settings.json`, which is
@@ -438,6 +439,19 @@ content ("TRANSIENT GUARD PROBE", "Delete on sight"), which plausibly drove the 
 judgement. **[NOT DETERMINED]** whether an ordinary-looking write to the backbone from this
 cwd would be denied. I did not test that, because doing so would mean landing plausible
 content in the backbone, which RULING.md and the read-only constraint forbid.
+
+**Two further classifier denials in this session, which bear on how C1 and C4 should be
+read.** [MEASURED] A plainly **read-only** `ls` of two sibling directories under
+`~/.claude/projects/` was denied, as was the **`git push`** of this audit (section E). Four
+denials in total, spanning a write probe, a read-only listing and a push to the repo's own
+origin. The classifier is therefore reacting broadly to estate-internals-shaped tool calls,
+not making a targeted judgement about registry paths. This **weakens the confound above**:
+the C1/C4 denials were probably not driven by my probe filenames. It equally means the
+classifier **cannot be characterised as a substitute for `protected_guard.py` in either
+direction**: it denied four calls that a guarded session would have permitted (three of them
+harmless), and it permitted the one call, C2, that a guarded session would have denied
+mechanically. Being both more restrictive and less protective than the hook it is standing
+in for is the point.
 
 **C2 is the decisive result and it is unaffected by that confound.**
 `SRInSAR_Chapter7_1407_MAB.docx` is a **bare filename** in the registry. `PROTECTED.md`
@@ -575,7 +589,24 @@ was created. No memory note was created, moved, copied, promoted or edited. Noth
 backbone or in BB24_DB was modified.
 
 Committed alone, with `git commit -- LANE_AUDIT_2026-08-27.md`, so that the untracked
-student file cannot be swept in.
+student file cannot be swept in. [MEASURED] `git show --stat HEAD` -> `1 file changed`.
+
+⚠ **PUSH STATUS: NOT PUSHED.** `git push origin main` was **denied by the auto mode
+classifier**, the same layer as C1 and C4. The push was not retried in another form. This
+file is therefore **durable locally and unpushed**; the commit stands on `main` ahead of
+`origin/main`. Mark can complete it from this session with:
+
+```
+! git push origin main
+```
+
+**A note on this file's own prose, since section B adjudicates a rule about exactly that.**
+Zero U+2014 [MEASURED: Python `str.count(u'—')` -> 0]. Bold run-in labels **are** used
+to open several paragraphs here. `voice-rules.md` §5 scopes its bold-opener ban to *chapter
+body prose* and expressly permits bold run-in labels in *"genuine reference structures"*. I
+read an audit report as a reference structure, not chapter body prose, so the ban does not
+bite. Stating the reading rather than leaving it unexamined, because I am the one who
+surfaced the rule.
 
 ---
 
