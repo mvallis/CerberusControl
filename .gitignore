@@ -30,3 +30,6 @@ slprj/         # Simulink project folders
 mcp_config.json # Local MCP server configuration
 repomix-output.xml
 repomix.config.json
+
+# simple-workflow plugin session logs (written into any worktree a session cwd sits in; BB24 precedent a63cc6a 15/10; tripped the lane stop guard 30/10)
+.simple-workflow/
